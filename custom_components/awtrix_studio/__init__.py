@@ -98,9 +98,13 @@ def _async_tidy_registries(hass: HomeAssistant, entry: AwtrixStudioConfigEntry) 
     the previous ones: move the device back and forget those switches.
     """
     dev_reg = dr.async_get(hass)
-    device = dev_reg.async_get_device(identifiers={(DOMAIN, entry.entry_id)})
-    if device is not None and getattr(device, "config_subentry_id", None) is not None:
-        dev_reg.async_update_device(device.id, new_config_subentry_id=None)
+    # Looked up among the entry's own devices: identifiers are no longer unique
+    # across config entries.
+    for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
+        if (DOMAIN, entry.entry_id) in device.identifiers and (
+            getattr(device, "config_subentry_id", None) is not None
+        ):
+            dev_reg.async_update_device(device.id, new_config_subentry_id=None)
 
     ent_reg = er.async_get(hass)
     for entity in er.async_entries_for_config_entry(ent_reg, entry.entry_id):
