@@ -51,7 +51,7 @@ from .const import (
 )
 from .display import CONF_DISPLAY, apply_display
 from .drivers import Screen
-from .icons import IconError, IconStore, convert
+from .icons import IconError, IconStore, convert, large_pixels
 from .loop import MAX_APP_NAME, MAX_LOOP, clean_order
 from .manager import MANAGED_SUBENTRY_TYPES, ClockManager
 from .pages import InvalidPagesError, parse_pages, serialize_page
@@ -822,7 +822,8 @@ async def ws_icon_clock(
 ) -> None:
     """Return the pixels of an icon stored on the clock, for the preview.
 
-    `pixels` is None when the clock has no such file.
+    `pixels` (8x8) is None when the clock has no such file. A 16x16 icon also
+    comes as is, in `large`, for a TC002 that shows it at that size.
     """
     entry = _entry(hass, msg["entry_id"])
     manager = _manager(entry) if entry else None
@@ -831,10 +832,13 @@ async def ws_icon_clock(
         return
     try:
         data = await manager.files.async_read_icon(msg["name"])
-        icon = None
+        icon = large = None
         if data is not None:
             icon = await hass.async_add_executor_job(convert, data)
+            large = await hass.async_add_executor_job(large_pixels, data)
     except (aiohttp.ClientError, TimeoutError, ValueError, IconError) as err:
         _error(connection, msg, "icons_unavailable", str(err) or type(err).__name__)
         return
-    connection.send_result(msg["id"], {"pixels": icon["pixels"] if icon else None})
+    connection.send_result(
+        msg["id"], {"pixels": icon["pixels"] if icon else None, "large": large}
+    )

@@ -153,8 +153,8 @@ async def test_icon_files_unavailable(
     aioclient_mock: AiohttpClientMocker,
     firmware: str,
 ) -> None:
-    """Without the clock's address, or on AWTRIX NG, nothing is fetched."""
-    entry = await setup_clock(hass, firmware, address=firmware != "awtrix3")
+    """Without the clock's address, nothing is fetched."""
+    entry = await setup_clock(hass, firmware, address=False)
     response = await ask(hass, hass_ws_client, entry.entry_id, "smile")
     assert not response["success"]
     assert response["error"]["code"] == "icons_unavailable"

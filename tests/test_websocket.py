@@ -248,8 +248,8 @@ async def test_save_validates_and_strips_unknown_keys(
     assert "evil" not in data["segments"][0]
     assert json.loads(published(mqtt_mock, f"{PREFIX}/custom/line")[-1]) == {
         "text": [
-            {"t": "21.5°C", "c": "#FFFFFF"},
-            {"t": " | B 21.5°C", "c": "#00FF00"},
+            {"t": "21.5°C", "c": "FFFFFF"},
+            {"t": " | B 21.5°C", "c": "00FF00"},
         ]
     }
 

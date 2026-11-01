@@ -293,8 +293,9 @@ export function screenToPixels(values, width = WIDTH, height = HEIGHT) {
 }
 
 // Icons stored on the clock, by plain file name. The panel gives a loader per
-// clock (key), which resolves to 64 RGB integers from Home Assistant, or null
-// when the clock has no such icon. A failed request is tried again later.
+// clock (key), which resolves to {pixels, large} from Home Assistant: 64 RGB
+// integers, or null when the clock has no such icon, and for a 16 × 16 icon
+// its 256 pixels as is. A failed request is tried again later.
 const CLOCK_ICON_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const CLOCK_ICON_RETRY = 30000;
 const CLOCK_ICONS = new Map();
@@ -319,10 +320,9 @@ function loadClockIcon(name, onReady) {
   if (!entry || (entry.failedAt && Date.now() - entry.failedAt > CLOCK_ICON_RETRY)) {
     entry = { readable: true, pixels: undefined, failedAt: 0, waiting: [] };
     CLOCK_ICONS.set(name, entry);
-    clockIcons.loader(name).then((values) => {
-      entry.pixels = Array.isArray(values) && values.length === 64
-        ? values.map((v) => (Number.isInteger(v) && v > 0 ? parseColor(v) : OFF))
-        : null;
+    clockIcons.loader(name).then((result) => {
+      entry.pixels = colors(result?.pixels, 64);
+      entry.large = entry.pixels && colors(result?.large, 256);
       entry.waiting.splice(0).forEach((cb) => cb());
     }, () => { entry.failedAt = Date.now(); entry.waiting.length = 0; });
   }
@@ -331,6 +331,12 @@ function loadClockIcon(name, onReady) {
     return null;
   }
   return entry.pixels ? entry : null;
+}
+
+function colors(values, count) {
+  return Array.isArray(values) && values.length === count
+    ? values.map((v) => (Number.isInteger(v) && v > 0 ? parseColor(v) : OFF))
+    : null;
 }
 
 // LaMetric icons, by numeric ID. Loaded with CORS when the server allows it
@@ -409,8 +415,11 @@ export function drawMatrix(canvas, pixels, options = {}) {
 
   let drawn = pixels.slice();
   let overlay = null;
+  // A 16 × 16 icon of the clock, drawn LED by LED where apps are doubled.
+  let large = null;
   if (options.icon) {
     const entry = loadIcon(options.icon, () => drawMatrix(canvas, pixels, options));
+    if (entry?.large && scale === 2) large = entry.large;
     if (entry) {
       const icon = iconPixels(entry);
       if (icon) {
@@ -424,7 +433,9 @@ export function drawMatrix(canvas, pixels, options = {}) {
   const radius = Math.max(1, cell / 4);
   for (let y = 0; y < ledRows; y++) {
     for (let x = 0; x < leds; x++) {
-      const color = drawn[Math.floor(y / scale) * cols + Math.floor(x / scale)];
+      const color = large && x < 16 && y < 16
+        ? large[y * 16 + x]
+        : drawn[Math.floor(y / scale) * cols + Math.floor(x / scale)];
       ctx.fillStyle = color || options.offColor || "#1A1A1E";
       if (color && options.glow) { ctx.shadowColor = color; ctx.shadowBlur = cell / 2; } else { ctx.shadowBlur = 0; }
       const px = x * (cell + gap), py = y * (cell + gap);

@@ -48,6 +48,9 @@ SIZE: Final = 8
 # from the header before anything is decoded (icons are 8x8).
 FORMATS: Final = ("GIF", "JPEG", "PNG")
 MAX_SIDE: Final = 64
+# An icon stored on the clock at this size fills a TC002's icon area at full
+# resolution: the preview draws it as is.
+LARGE: Final = 16
 # How long a failed download is not retried, in seconds.
 RETRY_AFTER: Final = 300
 
@@ -63,11 +66,10 @@ def icon_id(value: Any) -> int | None:
     return None
 
 
-def convert(data: bytes) -> dict[str, Any]:
-    """Turn a LaMetric icon file into pixels and an 8x8 Base64 JPEG.
+def _first_frame(data: bytes) -> tuple[Image.Image, bool, str]:
+    """Return an icon's first image, whether it is animated, and its format.
 
-    Runs in the executor (Pillow is blocking). Transparent pixels become black,
-    the clock's "off". Other formats and larger images are refused unread.
+    Other formats and larger images are refused unread.
     """
     try:
         with Image.open(BytesIO(data), formats=FORMATS) as image:
@@ -76,18 +78,46 @@ def convert(data: bytes) -> dict[str, Any]:
             animated = getattr(image, "n_frames", 1) > 1
             file_format = (image.format or "").lower()
             image.seek(0)
-            frame = image.convert("RGBA")
+            return image.convert("RGBA"), animated, file_format
     except (OSError, ValueError, Image.DecompressionBombError) as err:
         raise IconError(f"unreadable icon: {err}") from err
-    if frame.size != (SIZE, SIZE):
-        frame = frame.resize((SIZE, SIZE), Image.Resampling.NEAREST)
-    background = Image.new("RGBA", frame.size, (0, 0, 0, 255))
-    rgb = Image.alpha_composite(background, frame).convert("RGB")
 
+
+def _rgb(frame: Image.Image) -> Image.Image:
+    """Transparent pixels become black, the clock's "off"."""
+    background = Image.new("RGBA", frame.size, (0, 0, 0, 255))
+    return Image.alpha_composite(background, frame).convert("RGB")
+
+
+def _pixels(rgb: Image.Image) -> list[int]:
     raw = rgb.tobytes()
-    pixels = [
+    return [
         (raw[i] << 16) | (raw[i + 1] << 8) | raw[i + 2] for i in range(0, len(raw), 3)
     ]
+
+
+def large_pixels(data: bytes) -> list[int] | None:
+    """Return the 16x16 pixels of an icon of that size, else None.
+
+    Runs in the executor. Only the first image.
+    """
+    frame, _, _ = _first_frame(data)
+    if frame.size != (LARGE, LARGE):
+        return None
+    return _pixels(_rgb(frame))
+
+
+def convert(data: bytes) -> dict[str, Any]:
+    """Turn a LaMetric icon file into pixels and an 8x8 Base64 JPEG.
+
+    Runs in the executor (Pillow is blocking). Transparent pixels become black,
+    the clock's "off". Other formats and larger images are refused unread.
+    """
+    frame, animated, file_format = _first_frame(data)
+    if frame.size != (SIZE, SIZE):
+        frame = frame.resize((SIZE, SIZE), Image.Resampling.NEAREST)
+    rgb = _rgb(frame)
+    pixels = _pixels(rgb)
     buffer = BytesIO()
     # Full quality and no chroma subsampling: an 8x8 image is a single block.
     rgb.save(buffer, format="JPEG", quality=100, subsampling=0)

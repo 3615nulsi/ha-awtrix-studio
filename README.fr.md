@@ -38,7 +38,8 @@ Awtrix Studio pilote les horloges sous l'un ou l'autre firmware, et les reconna�
 | **Écran** | 32 × 8 | 32 × 8 ; sur le TC002, 52 × 16, les apps étant dessinées en double taille sur une grille de 26 × 8 |
 | **Apps simples, indicateurs, options d'affichage** | ✅ | ✅ écrits pour vous dans le JSON propre à NG |
 | **Mode modèle** | JSON AWTRIX 3 | JSON AWTRIX NG ; les clés refusées par l'horloge sont affichées dans le panneau |
-| **Icônes LaMetric animées** | déposées sur l'horloge par sa page web | envoyées avec l'app |
+| **Icônes LaMetric animées** | déposées sur l'horloge par sa page web | déposées sur l'horloge par son API de fichiers, ou envoyées avec l'app (NG 1.2 ou plus récent) |
+| **Icônes présentes sur l'horloge** | affichées dans le panneau | affichées dans le panneau, les 16 × 16 en taille réelle sur le TC002 |
 | **Ordre des apps** | réglé par la page web de l'horloge, rétabli quand une app revient | mémorisé par l'horloge elle-même |
 | **Absent de ce firmware** | – | texte en haut, conservation d'une app après un redémarrage |
 

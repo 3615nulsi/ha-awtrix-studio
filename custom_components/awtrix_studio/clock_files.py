@@ -2,8 +2,9 @@
 
 AWTRIX only animates icons stored in its own memory. For an animated icon of
 the LaMetric gallery, Awtrix Studio drops the GIF into the clock's /ICONS
-folder through its web file manager (the one the clock's web page uses), once,
-and the app then names the icon by its number.
+folder, once, and the app then names the icon by its number. AWTRIX 3 takes
+it through its web file manager (the one the clock's web page uses), AWTRIX NG
+through its files API; the driver knows which.
 
 The clock's address comes from its MQTT stats and is limited to private IPv4
 addresses. Files are only ever added, never deleted. When the clock cannot be
@@ -69,7 +70,12 @@ class ClockFiles:
     @property
     def supported(self) -> bool:
         """Return True if icons can be stored on this clock."""
-        return self.address is not None and self.driver.icon_file("x") is not None
+        return (
+            self.address is not None
+            and self.driver.icon_file("x") is not None
+            and self.driver.files_path is not None
+            and self.driver.upload_path is not None
+        )
 
     def set_address(self, address: str | None) -> bool:
         """Remember the clock's address; return True if it changed."""
@@ -138,23 +144,19 @@ class ClockFiles:
         folder = self.driver.icon_file("").rstrip("/")
         session = async_get_clientsession(self.hass)
         async with session.get(
-            self._url("/list"), params={"dir": folder}, timeout=TIMEOUT
+            self._url(self.driver.files_path), params={"dir": folder}, timeout=TIMEOUT
         ) as response:
             response.raise_for_status()
-            entries = json.loads(await response.text())
-        if not isinstance(entries, list):
+            names = self.driver.parse_files(await response.text())
+        if names is None:
             raise ValueError("unexpected file list")
-        return {
-            entry["name"]
-            for entry in entries
-            if isinstance(entry, dict) and isinstance(entry.get("name"), str)
-        }
+        return names
 
     async def _async_upload(self, filename: str, data: bytes) -> None:
         form = upload_form(self.driver.icon_file(filename), data)
         session = async_get_clientsession(self.hass)
         async with session.post(
-            self._url("/edit"), data=form, timeout=TIMEOUT
+            self._url(self.driver.upload_path), data=form, timeout=TIMEOUT
         ) as response:
             response.raise_for_status()
         _LOGGER.debug("Stored icon %s on the clock at %s", filename, self.address)

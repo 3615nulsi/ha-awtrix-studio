@@ -38,7 +38,8 @@ Awtrix Studio drives clocks running either firmware, and tells them apart by its
 | **Screen** | 32 × 8 | 32 × 8; on the TC002, 52 × 16 with apps drawn at double size on a 26 × 8 grid |
 | **Simple apps, indicators, display options** | ✅ | ✅ written in NG's own JSON for you |
 | **Template mode** | AWTRIX 3 JSON | AWTRIX NG JSON; the keys the clock refuses are shown in the panel |
-| **Animated LaMetric icons** | stored on the clock through its web page | sent along with the app |
+| **Animated LaMetric icons** | stored on the clock through its web page | stored on the clock through its files API, or sent along with the app (NG 1.2 or newer) |
+| **Icons stored on the clock** | shown in the panel | shown in the panel, 16 × 16 icons at full size on the TC002 |
 | **Order of the apps** | set through the clock's web page, restored when an app comes back | stored by the clock itself |
 | **Not on this firmware** | – | text at the top, keeping an app after a restart |
 

@@ -267,14 +267,31 @@ async def test_line_of_entities(hass: HomeAssistant) -> None:
     assert render(hass, template) == [
         {
             "text": [
-                {"t": "UP 750 Mbit/s", "c": "#00FF00"},
-                {"t": " DN 30", "c": "#FFFFFF"},
+                {"t": "UP 750 Mbit/s", "c": "00FF00"},
+                {"t": " DN 30", "c": "FFFFFF"},
             ],
             "icon": "1234",
         }
     ]
     hass.states.async_set("sensor.down", "80", {})
-    assert render(hass, template)[0]["text"][1] == {"t": " DN 80", "c": "#FF0000"}
+    assert render(hass, template)[0]["text"][1] == {"t": " DN 80", "c": "FF0000"}
+
+
+async def test_line_gradient_color_is_hex(hass: HomeAssistant) -> None:
+    """A gradient color (an RGB list) reaches AWTRIX 3 as bare hex digits."""
+    hass.states.async_set("sensor.up", "1", {})
+    hass.states.async_set("sensor.down", "100", {})
+    segment = {
+        "entity_id": "sensor.down",
+        "color_mode": "gradient",
+        "gradient": "custom",
+        "gradient_stops": [
+            {"value": 0, "color": [0, 0, 255]},
+            {"value": 100, "color": [255, 0, 0]},
+        ],
+    }
+    template = build_app_template({**LINE, "segments": [segment]})
+    assert render(hass, template)[0]["text"][1]["c"] == "FF0000"
 
 
 async def test_line_separator_and_missing_values(hass: HomeAssistant) -> None:

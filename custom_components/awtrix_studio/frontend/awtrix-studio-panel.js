@@ -1335,8 +1335,7 @@ class AwtrixStudioPanel extends HTMLElement {
   _setClockIcons(snapshot) {
     const entryId = snapshot.entry_id;
     if (!snapshot.features?.icon_files || !snapshot.loaded) return setClockIcons(null, null);
-    setClockIcons(entryId, (name) => this._hass.callWS({ type: "awtrix_studio/icons/clock", entry_id: entryId, name })
-      .then((r) => r.pixels));
+    setClockIcons(entryId, (name) => this._hass.callWS({ type: "awtrix_studio/icons/clock", entry_id: entryId, name }));
   }
 
   async _iconPixels(id) {
