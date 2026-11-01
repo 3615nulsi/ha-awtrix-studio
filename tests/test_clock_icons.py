@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from io import BytesIO
 import json
 from typing import Any
+from unittest.mock import Mock
 
+import aiohttp
 from homeassistant.core import HomeAssistant
 from PIL import Image
 import pytest
@@ -19,7 +22,10 @@ from pytest_homeassistant_custom_component.typing import (
     WebSocketGenerator,
 )
 
-from custom_components.awtrix_studio.clock_files import MAX_ICON_FILE_BYTES
+from custom_components.awtrix_studio.clock_files import (
+    MAX_ICON_FILE_BYTES,
+    read_limited,
+)
 from custom_components.awtrix_studio.const import DOMAIN
 from custom_components.awtrix_studio.icons import MAX_SIDE, IconError, convert
 
@@ -200,3 +206,31 @@ async def test_large_image_on_the_clock_is_refused(
     assert not response["success"]
     assert response["error"]["code"] == "icons_unavailable"
     assert "too large" in response["error"]["message"]
+
+
+def chunked(*chunks: bytes) -> aiohttp.StreamReader:
+    """A body arriving in several TCP segments, the next one a moment later."""
+    loop = asyncio.get_running_loop()
+    stream = aiohttp.StreamReader(Mock(_reading_paused=False), 2**16, loop=loop)
+    stream.feed_data(chunks[0])
+
+    def feed(rest: tuple[bytes, ...]) -> None:
+        stream.feed_data(rest[0])
+        if len(rest) > 1:
+            loop.call_soon(feed, rest[1:])
+        else:
+            stream.feed_eof()
+
+    loop.call_soon(feed, chunks[1:])
+    return stream
+
+
+async def test_icon_file_in_several_segments() -> None:
+    """A larger GIF arriving in pieces is read whole, not cut short."""
+    data = image("GIF", (16, 16)) + b"\x00" * 3000
+    first, rest = data[:1460], data[1460:]
+    # What the preview used to do: only the first segment.
+    assert len(await chunked(first, rest).read(MAX_ICON_FILE_BYTES + 1)) == 1460
+    assert await read_limited(chunked(first, rest), MAX_ICON_FILE_BYTES) == data
+    with pytest.raises(ValueError, match="too large"):
+        await read_limited(chunked(b"x" * 10, b"y" * 10), 15)

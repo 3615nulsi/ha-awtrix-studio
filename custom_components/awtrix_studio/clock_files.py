@@ -54,6 +54,20 @@ def upload_form(path: str, data: bytes) -> aiohttp.FormData:
     return form
 
 
+async def read_limited(stream: aiohttp.StreamReader, limit: int) -> bytes:
+    """Read a whole body, refusing it beyond `limit` bytes.
+
+    `StreamReader.read(n)` only returns what has arrived so far: a file sent
+    in several TCP segments would be cut short.
+    """
+    data = bytearray()
+    async for chunk in stream.iter_chunked(16 * 1024):
+        data += chunk
+        if len(data) > limit:
+            raise ValueError("file too large")
+    return bytes(data)
+
+
 class ClockFiles:
     """Icon files of one clock."""
 
@@ -209,7 +223,4 @@ class ClockFiles:
             self._url(self.driver.icon_file(filename)), timeout=TIMEOUT
         ) as response:
             response.raise_for_status()
-            data = await response.content.read(MAX_ICON_FILE_BYTES + 1)
-        if len(data) > MAX_ICON_FILE_BYTES:
-            raise ValueError("file too large")
-        return data
+            return await read_limited(response.content, MAX_ICON_FILE_BYTES)
