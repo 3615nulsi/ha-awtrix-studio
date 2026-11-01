@@ -84,6 +84,11 @@ function h(tag, props, ...children) {
     else if (key === "checked") el.checked = Boolean(value);
     else el.setAttribute(key, value === true ? "" : String(value));
   }
+  return append(el, ...children);
+}
+
+/** Append children, skipping null, undefined and false (the DOM would show "null"). */
+function append(el, ...children) {
   for (const child of children.flat()) {
     if (child === null || child === undefined || child === false) continue;
     el.append(child instanceof Node ? child : document.createTextNode(String(child)));
@@ -1493,7 +1498,7 @@ class AwtrixStudioPanel extends HTMLElement {
     }
 
     if (kind === "app") {
-      box.append(this._layoutField(), this._fontFields(), this._segmentsSection(), this._iconField());
+      append(box, this._layoutField(), this._fontFields(), this._segmentsSection(), this._iconField());
       if (f.segments.length > 1 && !f.layout) {
         box.append(this._field("separator", this.t("separator"), this._input("separator", "text", { maxlength: 8, spellcheck: "false" }),
           this.t("separator_help")));
@@ -1620,7 +1625,7 @@ class AwtrixStudioPanel extends HTMLElement {
     const render = () => {
       clear(fieldset);
       Object.keys(this._errors).filter((key) => key.startsWith("display.")).forEach((key) => delete this._errors[key]);
-      fieldset.append(h("legend", {}, this.t("display")), h("div", { class: "muted" }, this.t("display_help")),
+      append(fieldset, h("legend", {}, this.t("display")), h("div", { class: "muted" }, this.t("display_help")),
         this._displayGroup("timing", this._displayTiming()),
         this._displayGroup("text", this._displayText(render)),
         this._displayGroup("background", this._displayBackground(render)),
