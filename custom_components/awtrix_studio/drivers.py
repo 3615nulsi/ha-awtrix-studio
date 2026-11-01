@@ -26,6 +26,11 @@ NAME_RE: Final = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 MAX_ERROR: Final = 120
 # Largest screen accepted from a clock (a TC002 is 52 x 16).
 MAX_SCREEN_PIXELS: Final = 64 * 32
+# A firmware version: "1.2.2", maybe "v1.2.2" or "1.2.0-beta".
+VERSION_RE: Final = re.compile(r"^v?(\d{1,4})\.(\d{1,4})(?:\.(\d{1,4}))?")
+# AWTRIX NG takes inline icons as data URLs from 1.2.0 on, a bare Base64 JPEG
+# before.
+NG_DATA_URL_VERSION: Final = (1, 2, 0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +83,23 @@ def _private_ipv4(value: Any) -> str | None:
     return str(address)
 
 
+def _version(value: Any) -> tuple[int, int, int] | None:
+    if not isinstance(value, str) or not (match := VERSION_RE.match(value.strip())):
+        return None
+    major, minor, patch = match.groups()
+    return (int(major), int(minor), int(patch or 0))
+
+
+def _file_names(entries: Any) -> set[str] | None:
+    if not isinstance(entries, list):
+        return None
+    return {
+        entry["name"]
+        for entry in entries
+        if isinstance(entry, dict) and isinstance(entry.get("name"), str)
+    }
+
+
 def _seconds(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
@@ -127,6 +149,8 @@ class FirmwareDriver(ABC):
     def __init__(self, prefix: str) -> None:
         """Initialize the driver for a clock identified by its MQTT prefix."""
         self.prefix = prefix
+        # The clock's firmware version, once it has told it.
+        self.version: tuple[int, int, int] | None = None
 
     @abstractmethod
     def app_topic(self, app_name: str) -> str:
@@ -208,8 +232,26 @@ class FirmwareDriver(ABC):
         """Return the clock's IP address from a status message, if any."""
         return None
 
+    def parse_version(self, payload: str) -> tuple[int, int, int] | None:
+        """Return the firmware version from a status message, if any."""
+        return None
+
     def icon_file(self, name: str) -> str | None:
         """Return the path of an icon file on the clock (None: not supported)."""
+        return None
+
+    @property
+    def files_path(self) -> str | None:
+        """Return the web path listing a folder of the clock (`?dir=`)."""
+        return None
+
+    def parse_files(self, payload: str) -> set[str] | None:
+        """Return the file names of a folder listing, None if unreadable."""
+        return None
+
+    @property
+    def upload_path(self) -> str | None:
+        """Return the web path taking a file upload, named by its full path."""
         return None
 
     @abstractmethod
@@ -346,6 +388,20 @@ class Awtrix3Driver(FirmwareDriver):
         """Icons live in /ICONS; the app names them without the extension."""
         return f"/ICONS/{name}"
 
+    @property
+    def files_path(self) -> str:
+        """The web page's file manager lists a folder on `/list`."""
+        return "/list"
+
+    def parse_files(self, payload: str) -> set[str] | None:
+        """`[{"type": "file", "name": ...}, ...]`."""
+        return _file_names(_json(payload))
+
+    @property
+    def upload_path(self) -> str:
+        """The web page's file manager takes uploads on `/edit`."""
+        return "/edit"
+
     def inline_icon(self, jpeg: str, gif: str | None) -> str:
         """AWTRIX 3 takes a bare Base64 JPEG and cannot play an inline GIF."""
         return jpeg
@@ -464,8 +520,38 @@ class AwtrixNGDriver(FirmwareDriver):
         data = _json(payload)
         return _private_ipv4(data.get("ipAddress")) if isinstance(data, dict) else None
 
+    def parse_version(self, payload: str) -> tuple[int, int, int] | None:
+        """The device state carries `version`."""
+        data = _json(payload)
+        return _version(data.get("version")) if isinstance(data, dict) else None
+
+    def icon_file(self, name: str) -> str:
+        """Icons live in /ICONS; the app names them without the extension."""
+        return f"/ICONS/{name}"
+
+    @property
+    def files_path(self) -> str:
+        """`GET /api/v1/files?dir=` lists a folder."""
+        return "/api/v1/files"
+
+    def parse_files(self, payload: str) -> set[str] | None:
+        """`{"files": [{"name": ..., "size": ...}], "usedBytes": ...}`."""
+        data = _json(payload)
+        return _file_names(data.get("files")) if isinstance(data, dict) else None
+
+    @property
+    def upload_path(self) -> str:
+        """`POST /api/v1/files` stores a file named by its full path."""
+        return "/api/v1/files"
+
     def inline_icon(self, jpeg: str, gif: str | None) -> str:
-        """Images go in a data URL; an inline GIF plays, animated."""
+        """Images go in a data URL; an inline GIF plays, animated.
+
+        Before 1.2.0, the clock took a bare Base64 JPEG, like AWTRIX 3, and
+        read a data URL as a broken JPEG.
+        """
+        if self.version is not None and self.version < NG_DATA_URL_VERSION:
+            return jpeg
         if gif is not None:
             return f"data:image/gif;base64,{gif}"
         return f"data:image/jpeg;base64,{jpeg}"

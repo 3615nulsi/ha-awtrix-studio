@@ -326,6 +326,57 @@ def native_display(display: Mapping[str, Any], firmware: str) -> dict[str, Any]:
     return dict(display)
 
 
+# Next to a `layout`, AWTRIX NG only takes these keys; the others go into the
+# layout (what is behind the boxes) or into its text regions (how text looks
+# and moves). Placement keys have no meaning there: each box places its text.
+LAYOUT_PAGE_KEYS: Final = ("durationMs", "repeat", "lifetimeMs", "lifetimeExpiry")
+LAYOUT_KEYS: Final = (
+    "effect",
+    "effectSpeed",
+    "overlay",
+    "palette",
+    "paletteBlend",
+    "backgroundColor",
+)
+TEXT_REGION_KEYS: Final = ("textCase", "textBlinkMs", "textFadeMs", "scroll")
+
+
+def _apply_to_layout(
+    page: dict[str, Any], defaults: Mapping[str, Any], paint_text: bool
+) -> dict[str, Any]:
+    """Spread NG display options over a layout page, where NG takes them."""
+    merged = {k: defaults[k] for k in LAYOUT_PAGE_KEYS if k in defaults}
+    merged.update(page)
+    layout = dict(page["layout"])
+    for key in LAYOUT_KEYS:
+        if key in defaults and key not in layout:
+            layout[key] = defaults[key]
+    # An effect is drawn instead of a background color, never with one.
+    if "effect" in layout and "backgroundColor" not in page["layout"]:
+        layout.pop("backgroundColor", None)
+    regions = layout.get("regions")
+    if isinstance(regions, list):
+        painted = paint_text and "palette" not in page["layout"]
+        layout["regions"] = [
+            _text_region_defaults(region, defaults, painted) for region in regions
+        ]
+    merged["layout"] = layout
+    return merged
+
+
+def _text_region_defaults(
+    region: Any, defaults: Mapping[str, Any], painted: bool
+) -> Any:
+    if not isinstance(region, dict) or "text" not in region:
+        return region
+    out = {k: defaults[k] for k in TEXT_REGION_KEYS if k in defaults}
+    out.update(region)
+    if painted and "palette" not in region:
+        out.pop("textColor", None)
+        out["color"] = "palette"
+    return out
+
+
 def apply_display(
     pages: list[dict[str, Any]],
     display: Mapping[str, Any] | None,
@@ -343,6 +394,9 @@ def apply_display(
     )
     result = []
     for page in pages:
+        if firmware == FIRMWARE_AWTRIX_NG and isinstance(page.get("layout"), dict):
+            result.append(_apply_to_layout(page, defaults, bool(paint_text)))
+            continue
         merged = {**defaults, **page}
         if paint_text and "palette" not in page:
             merged["textColor"] = "palette"

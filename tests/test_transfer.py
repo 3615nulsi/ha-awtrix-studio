@@ -390,3 +390,31 @@ async def test_switches_of_older_versions_are_repaired(
     entities = er.async_entries_for_config_entry(ent_reg, entry.entry_id)
     assert sorted(e.unique_id for e in entities) == ["s_co2_enabled", "s_ind1_enabled"]
     assert {e.config_subentry_id for e in entities} == {None}
+
+
+async def test_layouts_become_lines_on_awtrix3(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, source: MockConfigEntry
+) -> None:
+    """A TC002 layout app imported on an AWTRIX 3 clock is shown on one line."""
+    client = await hass_ws_client(hass)
+    two_lines = {
+        **SIMPLE_APP,
+        "type": "app",
+        "app_name": "two",
+        "layout": "two_lines",
+        "segments": [{"entity_id": "sensor.temp"}],
+    }
+    result = await _ws(
+        client,
+        {
+            "type": "awtrix_studio/import",
+            "entry_id": source.entry_id,
+            "document": {"awtrix_studio": 1, "items": [two_lines]},
+        },
+    )
+    assert result["items"][0]["warnings"] == ["layout_dropped"]
+    assert result["imported"] == 1
+    await hass.async_block_till_done()
+    stored = {s.title: dict(s.data) for s in source.subentries.values()}
+    assert "layout" not in stored["two"]
+    assert stored["two"]["segments"][0]["entity_id"] == "sensor.temp"

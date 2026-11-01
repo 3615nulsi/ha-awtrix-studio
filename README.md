@@ -35,10 +35,11 @@ Awtrix Studio drives clocks running either firmware, and tells them apart by its
 | | AWTRIX 3 | AWTRIX NG |
 |---|---|---|
 | **Clocks** | Ulanzi TC001, DIY ESP32 clocks | Ulanzi TC002, and the TC001 or DIY ESP32 clocks flashed with NG |
-| **Screen** | 32 × 8 | 32 × 8; on the TC002, 52 × 16 with apps drawn at double size on a 26 × 8 grid |
+| **Screen** | 32 × 8 | 32 × 8; on the TC002, 52 × 16: apps are drawn at double size on a 26 × 8 grid, or pixel for pixel with a **layout** |
 | **Simple apps, indicators, display options** | ✅ | ✅ written in NG's own JSON for you |
 | **Template mode** | AWTRIX 3 JSON | AWTRIX NG JSON; the keys the clock refuses are shown in the panel |
-| **Animated LaMetric icons** | stored on the clock through its web page | sent along with the app |
+| **Animated LaMetric icons** | stored on the clock through its web page | stored on the clock through its files API, or sent along with the app (NG 1.2 or newer) |
+| **Icons stored on the clock** | shown in the panel | shown in the panel, 16 × 16 icons at full size on the TC002 |
 | **Order of the apps** | set through the clock's web page, restored when an app comes back | stored by the clock itself |
 | **Not on this firmware** | – | text at the top, keeping an app after a restart |
 
@@ -76,9 +77,11 @@ Choose an entity, add a label, an icon and colors, and you're done. The preview 
 | **Text color** | The default color. |
 | **Decimals** | Round the value, or leave empty to show it as is. |
 | **Show the unit** | Adds `°C`, `%`, `kW`… after the value. |
+| **Custom unit** | Shown instead of the entity's unit, for example `GB` after a bare `750`. Empty: the entity's own. |
 | **Hide when the value is 0** | Handy for solar production at night. |
 | **Progress bar** | A bar at the bottom of the screen, from the app's entity or another one, empty and full at the values you choose. It can follow the text color. |
 | **Add an entity** | Shows several entities on the same line, like `UP 750 DN 30`. Each one has its own label, decimals, unit and color (fixed, steps or gradient); a tab per entity switches between them, and a **separator** goes between two. An entity without a value leaves the line, and the app leaves the rotation when none is left. On AWTRIX NG the whole line takes the color of the first entity. |
+| **Layout** (TC002 on AWTRIX NG) | Draws the app on all 52 × 16 LEDs, one LED per pixel, instead of one line at double size: **Value**, **Title and value** (the label in small letters above), **Value and progress bar**, or **Two entities, one per line**. The icon is optional; a gallery icon is drawn at 16 × 16 there. You pick the fonts among those that stay legible: an 8-pixel font for the value (bold by default, light, or wide for a short value), and a 6-pixel font for the title or the lines (light by default, or bold). |
 | **Color according to the value** | **Fixed**, **steps** (up to two thresholds, each with its color), or a **gradient**: pick a ready-made one (*the higher, the worse*, *the lower, the worse*, *best in the middle*, *cold → hot*) and set its range, or make your own with 2 to 5 points. For temperatures, CO2, humidity or batteries, a sensible range is suggested. |
 
 The app also leaves the rotation by itself while its entity is unavailable.

@@ -85,7 +85,9 @@ Confirmé dans la documentation NG (v1.2) et mis en œuvre dans le pilote NG :
 | Redémarrage | `uptime` qui repart à zéro | retour à `online` sur `<préfixe>/availability` (sur TC002, `uptimeSeconds` ne repart pas à zéro) |
 | Miroir d'écran | `sendscreen` → tableau de 256 couleurs | `cmd/screen/get` → `{"width","height","pixels"}` (52 × 16 sur TC002) |
 | Ordre des apps | HTTP seulement (`/api/reorder`), à réappliquer quand une app revient | MQTT (`cmd/apps/order`), mémorisé par l'horloge : envoyé une fois, avec la liste des apps désactivées lue en HTTP (`/api/v1/apps`) |
-| Icône inline | JPEG en Base64, première image seulement | data URL ; un GIF animé est joué (message limité à 8 Ko) |
+| Icône inline | JPEG en Base64, première image seulement | data URL ; un GIF animé est joué (message limité à 8 Ko). Avant 1.2.0, JPEG en Base64 comme AWTRIX 3 : la version vient de `state/device` |
+| Fichiers d'icônes | `/list?dir=/ICONS`, envoi par `/edit` | `GET /api/v1/files?dir=/ICONS` → `{"files":[{"name","size"}]}`, envoi par `POST /api/v1/files` (GIF ou JPEG) |
+| Lire une icône | `GET /ICONS/<fichier>` | `GET /ICONS/<fichier>` |
 
 Les dessins existent sur NG, sous forme de tableaux (`["pixel", x, y, c]`).
 
@@ -106,6 +108,25 @@ Aperçu : le simulateur lit les clés et les dessins NG (tableaux `["rect", …]
 (`display`) et `enlargeApps` de `state/settings` : sur un TC002, les apps sont
 dessinées sur une grille de 26 × 8, chaque pixel allumant 2 × 2 LED, comme sur
 l'horloge.
+
+Mises en page (TC002) : une app simple peut choisir une mise en page (`layout`
+dans ses données) : valeur, titre et valeur, valeur et barre, ou deux entités
+sur deux lignes, l'icône restant facultative. Son modèle produit alors un
+`layout` NG (des zones `[x, y, largeur, hauteur]` sur les 52 × 16 pixels), que
+l'horloge dessine en taille réelle même quand `enlargeApps` est activé. Les
+polices se choisissent parmi les plus lisibles (`value_font` et `text_font`) :
+pour la valeur, `matrix-chunky8` par défaut, `matrix-light8` ou les larges
+`matrix-chunky8x6` et `matrix-light8x6` ; pour le titre et les lignes,
+`matrix-light6` par défaut ou `matrix-chunky6`. À côté d'un `layout`, NG n'accepte
+que la durée, la répétition et la durée de vie : les autres options
+d'affichage vont dans le layout (effet, fond, météo, palette) ou dans ses zones
+de texte (casse, clignotement, fondu, défilement), et les options de placement
+sont ignorées. Une icône de la galerie dans une zone d'au moins 16 × 16 est
+envoyée doublée, en GIF 16 × 16 (animé si la taille du message le permet). Une
+app avec mise en page importée sur une horloge AWTRIX 3 perd sa mise en page et
+s'affiche sur une ligne. L'aperçu dessine les mises en page avec les
+Matrix-Fonts (MIT), générées dans `frontend/fonts.js` par
+`scripts/gen_preview_fonts.py`.
 
 ## 5. Configuration (interface uniquement)
 
