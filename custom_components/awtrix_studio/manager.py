@@ -499,9 +499,15 @@ class ClockManager:
             payload = payload.decode(errors="replace")
         payload = str(payload)
         address = self.driver.parse_address(payload)
-        if address is not None and self.files.set_address(address):
-            # Animated icons can now be stored on the clock, and the loop
-            # order checked.
+        # Animated icons can now be stored on the clock, and the loop order
+        # checked.
+        republish = address is not None and self.files.set_address(address)
+        version = self.driver.parse_version(payload)
+        if version is not None and version != self.driver.version:
+            # Inline icons depend on the version: send them again in its form.
+            self.driver.version = version
+            republish = True
+        if republish:
             self.hass.async_create_task(
                 self.async_republish_all(), f"awtrix_studio republish {self.prefix}"
             )

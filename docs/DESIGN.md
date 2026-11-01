@@ -85,7 +85,9 @@ Confirmé dans la documentation NG (v1.2) et mis en œuvre dans le pilote NG :
 | Redémarrage | `uptime` qui repart à zéro | retour à `online` sur `<préfixe>/availability` (sur TC002, `uptimeSeconds` ne repart pas à zéro) |
 | Miroir d'écran | `sendscreen` → tableau de 256 couleurs | `cmd/screen/get` → `{"width","height","pixels"}` (52 × 16 sur TC002) |
 | Ordre des apps | HTTP seulement (`/api/reorder`), à réappliquer quand une app revient | MQTT (`cmd/apps/order`), mémorisé par l'horloge : envoyé une fois, avec la liste des apps désactivées lue en HTTP (`/api/v1/apps`) |
-| Icône inline | JPEG en Base64, première image seulement | data URL ; un GIF animé est joué (message limité à 8 Ko) |
+| Icône inline | JPEG en Base64, première image seulement | data URL ; un GIF animé est joué (message limité à 8 Ko). Avant 1.2.0, JPEG en Base64 comme AWTRIX 3 : la version vient de `state/device` |
+| Fichiers d'icônes | `/list?dir=/ICONS`, envoi par `/edit` | `GET /api/v1/files?dir=/ICONS` → `{"files":[{"name","size"}]}`, envoi par `POST /api/v1/files` (GIF ou JPEG) |
+| Lire une icône | `GET /ICONS/<fichier>` | `GET /ICONS/<fichier>` |
 
 Les dessins existent sur NG, sous forme de tableaux (`["pixel", x, y, c]`).
 

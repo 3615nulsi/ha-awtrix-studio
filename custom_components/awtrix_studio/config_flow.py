@@ -78,6 +78,7 @@ from .const import (
     CONF_TEXT_FONT,
     CONF_THRESHOLD_1,
     CONF_THRESHOLD_2,
+    CONF_UNIT,
     CONF_VALUE_FONT,
     DEFAULT_ACTIVE_STATE,
     DEFAULT_COLOR,
@@ -474,6 +475,7 @@ class AppSubentryFlow(_LiveSubentryFlow):
                     )
                 ),
                 vol.Required(CONF_SHOW_UNIT, default=True): BooleanSelector(),
+                vol.Optional(CONF_UNIT): TextSelector(),
                 vol.Required(CONF_HIDE_WHEN_ZERO, default=False): BooleanSelector(),
                 vol.Optional(CONF_COLOR_MODE): _select(
                     APP_COLOR_MODES, CONF_COLOR_MODE

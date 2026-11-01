@@ -300,7 +300,7 @@ async def test_subentry_reconfigure_keeps_segments(
     assert data["segments"] == line["segments"]
     assert data["separator"] == " | "
     assert json.loads(published(mqtt_mock, f"{PREFIX}/custom/net")[-1]) == {
-        "text": [{"t": "U 750", "c": "#00FF00"}, {"t": " | DN 30", "c": "#FFFFFF"}]
+        "text": [{"t": "U 750", "c": "00FF00"}, {"t": " | DN 30", "c": "FFFFFF"}]
     }
 
 

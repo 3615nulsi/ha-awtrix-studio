@@ -21,7 +21,7 @@ const MIRROR_STALE_MS = 5000;
 // the one being edited at its top level (so every field works unchanged) and
 // all of them in `segments`.
 const MAX_SEGMENTS = 5;
-const SEGMENT_KEYS = ["entity_id", "label", "color", "decimals", "show_unit", "hide_when_zero", "threshold_1", "color_1",
+const SEGMENT_KEYS = ["entity_id", "label", "color", "decimals", "show_unit", "unit", "hide_when_zero", "threshold_1", "color_1",
   "threshold_2", "color_2", "color_mode", "gradient", "_presetTouched", "gradient_min", "gradient_max", "gradient_stops"];
 
 // AWTRIX 3 background effects, palettes and weather overlays.
@@ -84,6 +84,11 @@ function h(tag, props, ...children) {
     else if (key === "checked") el.checked = Boolean(value);
     else el.setAttribute(key, value === true ? "" : String(value));
   }
+  return append(el, ...children);
+}
+
+/** Append children, skipping null, undefined and false (the DOM would show "null"). */
+function append(el, ...children) {
   for (const child of children.flat()) {
     if (child === null || child === undefined || child === false) continue;
     el.append(child instanceof Node ? child : document.createTextNode(String(child)));
@@ -1055,6 +1060,7 @@ class AwtrixStudioPanel extends HTMLElement {
       color: toHex(d.color, "#FFFFFF"),
       decimals: d.decimals ?? "",
       show_unit: d.show_unit ?? true,
+      unit: d.unit || "",
       hide_when_zero: d.hide_when_zero ?? false,
       threshold_1: d.threshold_1 ?? "",
       color_1: toHex(d.color_1, "#FFB74D"),
@@ -1180,7 +1186,7 @@ class AwtrixStudioPanel extends HTMLElement {
 
   _segmentPayload(s) {
     return { entity_id: s.entity_id, label: s.label, color: s.color, decimals: numberOrEmpty(s.decimals),
-      show_unit: s.show_unit, hide_when_zero: s.hide_when_zero,
+      show_unit: s.show_unit, unit: s.unit, hide_when_zero: s.hide_when_zero,
       threshold_1: numberOrEmpty(s.threshold_1), color_1: s.color_1, threshold_2: numberOrEmpty(s.threshold_2), color_2: s.color_2,
       ...this._gradientPayload(s) };
   }
@@ -1277,6 +1283,7 @@ class AwtrixStudioPanel extends HTMLElement {
 
   _entityChanged() {
     const f = this._form;
+    if (this._unitInput) this._unitInput.placeholder = this._entityUnit() || this.t("custom_unit_placeholder");
     if (f.color_mode !== "gradient" || f.gradient === "custom" || !this._hass.states[f.entity_id]) { this._updateGradientBar(); return; }
     const hadRange = f.gradient_min !== "" || f.gradient_max !== "";
     this._suggestRange();
@@ -1286,6 +1293,22 @@ class AwtrixStudioPanel extends HTMLElement {
     } else {
       this._updateGradientBar();
     }
+  }
+
+  /** "Show the unit", and a unit of one's own shown in place of the entity's. */
+  _unitFields() {
+    const f = this._form;
+    const unit = this._input("unit", "text", { maxlength: 16, spellcheck: "false", disabled: !f.show_unit,
+      placeholder: this._entityUnit() || this.t("custom_unit_placeholder") });
+    this._unitInput = unit;
+    const show = this._check("show_unit", this.t("show_unit"));
+    show.querySelector("input").addEventListener("change", (e) => { unit.disabled = !e.target.checked; });
+    return [show, this._field("unit", this.t("custom_unit"), unit, this.t("custom_unit_help"))];
+  }
+
+  /** The unit Home Assistant gives the entity being edited, if any. */
+  _entityUnit() {
+    return this._hass.states[this._form.entity_id]?.attributes?.unit_of_measurement || "";
   }
 
   _check(key, label, help) {
@@ -1350,8 +1373,7 @@ class AwtrixStudioPanel extends HTMLElement {
   _setClockIcons(snapshot) {
     const entryId = snapshot.entry_id;
     if (!snapshot.features?.icon_files || !snapshot.loaded) return setClockIcons(null, null);
-    setClockIcons(entryId, (name) => this._hass.callWS({ type: "awtrix_studio/icons/clock", entry_id: entryId, name })
-      .then((r) => r.pixels));
+    setClockIcons(entryId, (name) => this._hass.callWS({ type: "awtrix_studio/icons/clock", entry_id: entryId, name }));
   }
 
   async _iconPixels(id) {
@@ -1494,7 +1516,7 @@ class AwtrixStudioPanel extends HTMLElement {
     }
 
     if (kind === "app") {
-      box.append(this._layoutField(), this._fontFields(), this._segmentsSection(), this._iconField());
+      append(box, this._layoutField(), this._fontFields(), this._segmentsSection(), this._iconField());
       if (f.segments.length > 1 && !f.layout) {
         box.append(this._field("separator", this.t("separator"), this._input("separator", "text", { maxlength: 8, spellcheck: "false" }),
           this.t("separator_help")));
@@ -1599,8 +1621,8 @@ class AwtrixStudioPanel extends HTMLElement {
         : this._field("label", this.t("label"), this._input("label", "text", { maxlength: 64 }), this.t("label_help")),
       this._field("color", this.t("text_color"), this._input("color", "color")),
       this._field("decimals", this.t("decimals"), this._input("decimals", "number", { min: 0, max: 4, step: 1 }), this.t("decimals_help")),
-      this._check("show_unit", this.t("show_unit")),
       this._check("hide_when_zero", this.t("hide_when_zero"), many ? this.t("hide_when_zero_segment") : null),
+      this._unitFields(),
       this._colorSection(["fixed", "steps", "gradient"], "color_by_value")));
     // A layout has a fixed number of entities: its own choice sets it.
     if (!f.layout) {
@@ -1621,7 +1643,7 @@ class AwtrixStudioPanel extends HTMLElement {
     const render = () => {
       clear(fieldset);
       Object.keys(this._errors).filter((key) => key.startsWith("display.")).forEach((key) => delete this._errors[key]);
-      fieldset.append(h("legend", {}, this.t("display")), h("div", { class: "muted" }, this.t("display_help")),
+      append(fieldset, h("legend", {}, this.t("display")), h("div", { class: "muted" }, this.t("display_help")),
         this._displayGroup("timing", this._displayTiming()),
         this._displayGroup("text", this._displayText(render)),
         this._displayGroup("background", this._displayBackground(render)),

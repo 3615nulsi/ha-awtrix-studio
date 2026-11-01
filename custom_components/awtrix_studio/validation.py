@@ -60,6 +60,7 @@ from .const import (
     CONF_TEXT_FONT,
     CONF_THRESHOLD_1,
     CONF_THRESHOLD_2,
+    CONF_UNIT,
     CONF_VALUE_FONT,
     DEFAULT_ACTIVE_STATE,
     DEFAULT_COLOR,
@@ -85,6 +86,7 @@ from .const import (
     MAX_PAGE_INTERVAL,
     MAX_SEGMENTS,
     MAX_SEPARATOR,
+    MAX_UNIT,
     MIN_PAGE_INTERVAL,
     MODE_SIMPLE,
     MODE_TEMPLATE,
@@ -285,6 +287,9 @@ def _segment(data: Mapping[str, Any]) -> dict[str, Any]:
     decimals = _number(data, CONF_DECIMALS, 0, 4)
     if decimals is not None:
         clean[CONF_DECIMALS] = int(decimals)
+    # Only kept when typed: the entity's own unit otherwise.
+    if unit := _text(data, CONF_UNIT)[:MAX_UNIT]:
+        clean[CONF_UNIT] = unit
     clean.update(_app_colors(data))
     return clean
 

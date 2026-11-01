@@ -47,6 +47,7 @@ from .const import (
     CONF_TEXT_FONT,
     CONF_THRESHOLD_1,
     CONF_THRESHOLD_2,
+    CONF_UNIT,
     CONF_VALUE_FONT,
     DEFAULT_ACTIVE_STATE,
     DEFAULT_COLOR,
@@ -238,6 +239,14 @@ def _build_line_template(options: Mapping[str, Any], firmware: str) -> str:
     separator = options.get(CONF_SEPARATOR)
     if not isinstance(separator, str):
         separator = DEFAULT_SEPARATOR
+    # AWTRIX 3 reads the color of a text fragment as bare hex digits, without
+    # the "#"; a color from a gradient is an RGB list.
+    fragment_color = (
+        "color"
+        if firmware == FIRMWARE_AWTRIX_NG
+        else '(color[1:] if color is string else "%02X%02X%02X"'
+        " | format(color[0], color[1], color[2]))"
+    )
     lines = [HEADER, "{%- set parts = [] -%}"]
     for number, segment in enumerate(segments, 1):
         entity = _entity_id(segment.get(CONF_ENTITY_ID))
@@ -250,14 +259,15 @@ def _build_line_template(options: Mapping[str, Any], firmware: str) -> str:
             "{%- set num = raw | float if raw | is_number else none -%}",
             f"{{%- if {shown} -%}}",
             *_text_lines(segment),
+            "{%- if not parts -%}{%- set first = color -%}{%- endif -%}",
             f'{{%- set parts = parts + [{{"t": ({jinja_str(separator)}'
-            ' if parts else "") ~ text, "c": color}] -%}',
+            f' if parts else "") ~ text, "c": {fragment_color}}}] -%}}',
             "{%- endif -%}",
         ]
     lines += ["{%- if not parts -%}", "[]", "{%- else -%}"]
     if options.get(CONF_PROGRESS) or firmware == FIRMWARE_AWTRIX_NG:
         # The first color paints the progress bar, as with one entity.
-        lines.append("{%- set color = parts[0].c -%}")
+        lines.append("{%- set color = first -%}")
     if firmware == FIRMWARE_AWTRIX_NG:
         # Colored text fragments are not known to exist on AWTRIX NG: the
         # line is sent as one text, in the color of its first entity.
@@ -454,9 +464,14 @@ def _text_lines(options: Mapping[str, Any], *, with_label: bool = True) -> list[
     if label and with_label:
         text = f"{jinja_str(label + ' ')} ~ value"
     if show_unit:
+        custom_unit = str(options.get(CONF_UNIT) or "").strip()
+        unit = (
+            jinja_str(custom_unit)
+            if custom_unit
+            else f"state_attr({jinja_str(entity)}, 'unit_of_measurement') or ''"
+        )
         lines += [
-            "{%- set unit = state_attr("
-            f"{jinja_str(entity)}, 'unit_of_measurement') or '' -%}}",
+            f"{{%- set unit = {unit} -%}}",
             # Like Home Assistant: no space before °C, °F or %.
             "{%- set sep = '' if unit[:1] in ['', '°', '%'] else ' ' -%}",
         ]

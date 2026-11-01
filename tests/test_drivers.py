@@ -68,6 +68,25 @@ def test_parse_address() -> None:
     ):
         assert driver.parse_address(payload) is None
     assert driver.icon_file("57980.gif") == "/ICONS/57980.gif"
+    assert driver.files_path == "/list"
+    assert driver.upload_path == "/edit"
+    assert driver.parse_version('{"version": "0.98"}') is None
+
+
+def test_file_lists() -> None:
+    """Each firmware lists a folder in its own JSON."""
+    assert Awtrix3Driver("a").parse_files(
+        '[{"type": "file", "name": "co2.gif"}, {"type": "dir"}, 3]'
+    ) == {"co2.gif"}
+    ng = AwtrixNGDriver("n")
+    listing = {
+        "files": [{"name": "co2.gif", "size": 546}, {"size": 3}, "x"],
+        "usedBytes": 65819,
+        "totalBytes": 6955291,
+    }
+    assert ng.parse_files(json.dumps(listing)) == {"co2.gif"}
+    for bad in ("[]", '{"files": 3}', "nope"):
+        assert ng.parse_files(bad) is None
 
 
 # ----------------------------------------------------------------- AWTRIX NG
@@ -88,7 +107,9 @@ def test_ng_topics() -> None:
     assert driver.navigate(False) == ("awtrixNG/cmd/apps/previous", "")
     assert driver.screen_request() == ("awtrixNG/cmd/screen/get", "")
     assert driver.screen_topic == "awtrixNG/state/screen"
-    assert driver.icon_file("x") is None
+    assert driver.icon_file("x.gif") == "/ICONS/x.gif"
+    assert driver.files_path == "/api/v1/files"
+    assert driver.upload_path == "/api/v1/files"
     assert driver.can_reorder
     assert driver.keeps_order
 
@@ -105,6 +126,23 @@ def test_ng_state() -> None:
     assert driver.parse_online("offline\n") is False
     assert driver.parse_online("maybe") is None
     assert driver.parse_current_app(" weather ") == "weather"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("1.2.2", (1, 2, 2)),
+        ("v1.1", (1, 1, 0)),
+        ("1.3.0-beta", (1, 3, 0)),
+        ("abc", None),
+        (12, None),
+    ],
+)
+def test_ng_version(value: object, expected: tuple[int, int, int] | None) -> None:
+    """The device state carries the firmware version."""
+    driver = AwtrixNGDriver("awtrixNG")
+    assert driver.parse_version(json.dumps({"version": value})) == expected
+    assert driver.parse_version("nope") is None
 
 
 def test_ng_lifetime_is_in_milliseconds() -> None:
@@ -165,6 +203,11 @@ def test_inline_icons() -> None:
     ng = AwtrixNGDriver("a")
     assert ng.inline_icon("JPEG", None) == "data:image/jpeg;base64,JPEG"
     assert ng.inline_icon("JPEG", "GIF") == "data:image/gif;base64,GIF"
+    # Before 1.2.0, AWTRIX NG took a bare Base64 JPEG.
+    ng.version = (1, 1, 2)
+    assert ng.inline_icon("JPEG", "GIF") == "JPEG"
+    ng.version = (1, 2, 0)
+    assert ng.inline_icon("JPEG", None) == "data:image/jpeg;base64,JPEG"
 
 
 def test_ng_capabilities_and_results() -> None:
