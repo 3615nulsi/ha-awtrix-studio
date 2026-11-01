@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # Actions used by the workflows (checkout, setup-python, ruff, hacs…).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # The test harness, which pins the Home Assistant version used by the tests.
+  # One PR a week at most: the tests run on it before you merge.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly

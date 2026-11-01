@@ -5,11 +5,20 @@ name: Release
 # Run it by hand on a branch to publish a beta from there.
 # Release notes come from .github/release-notes/v<version>.md when present,
 # otherwise they are generated from the commits.
+#
+# Each release carries awtrix_studio.zip (the content of
+# custom_components/awtrix_studio), which HACS installs because hacs.json sets
+# "zip_release". Its download count shows how many installs and updates went
+# through HACS. If the release already exists without the zip, the zip is
+# added to it.
 
 on:
   push:
     branches: [main]
-    paths: [custom_components/awtrix_studio/manifest.json]
+    paths:
+      - custom_components/awtrix_studio/manifest.json
+      - hacs.json
+      - .github/workflows/release.yml
   workflow_dispatch:
 
 permissions:
@@ -23,13 +32,22 @@ jobs:
       - name: Read the version
         id: version
         run: echo "tag=v$(jq -r .version custom_components/awtrix_studio/manifest.json)" >> "$GITHUB_OUTPUT"
-      - name: Create the release if it does not exist yet
+      - name: Build the zip
+        run: |
+          cd custom_components/awtrix_studio
+          zip -r -X "$GITHUB_WORKSPACE/awtrix_studio.zip" . -x '__pycache__/*' '*.pyc'
+      - name: Create the release, or add the zip to it
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           if gh release view "$TAG" > /dev/null 2>&1; then
-            echo "$TAG is already released."
+            if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -qx awtrix_studio.zip; then
+              echo "$TAG is already released with its zip."
+            else
+              echo "$TAG is already released: adding the zip."
+              gh release upload "$TAG" awtrix_studio.zip
+            fi
             exit 0
           fi
           # A beta (0.12.0b1) or release candidate is a pre-release: HACS
@@ -40,7 +58,7 @@ jobs:
           fi
           notes=".github/release-notes/$TAG.md"
           if [ -f "$notes" ]; then
-            gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" "${kind[@]}" --notes-file "$notes"
+            gh release create "$TAG" awtrix_studio.zip --target "$GITHUB_SHA" --title "$TAG" "${kind[@]}" --notes-file "$notes"
           else
-            gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" "${kind[@]}" --generate-notes
+            gh release create "$TAG" awtrix_studio.zip --target "$GITHUB_SHA" --title "$TAG" "${kind[@]}" --generate-notes
           fi

@@ -1,0 +1,81 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem! The details below help find the cause without a lot of back and forth.
+        Before posting, please check that you are on the [latest release](https://github.com/3615nulsi/ha-awtrix-studio/releases).
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+      placeholder: |
+        1. In simple mode, I set the icon to `2355`
+        2. I saved the app
+        3. The preview shows the icon, but the clock shows none
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Awtrix Studio version
+      description: Shown in HACS, or in Settings → Devices & services → Awtrix Studio.
+      placeholder: "0.11.0"
+    validations:
+      required: true
+
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      description: Settings → About.
+      placeholder: "2026.10.4"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: firmware
+    attributes:
+      label: Clock firmware
+      options:
+        - AWTRIX 3
+        - AWTRIX NG
+        - I don't know
+    validations:
+      required: true
+
+  - type: input
+    id: firmware_version
+    attributes:
+      label: Firmware version and clock model
+      description: Shown on the clock's web page.
+      placeholder: "AWTRIX 3 0.98, Ulanzi TC001"
+
+  - type: dropdown
+    id: http_auth
+    attributes:
+      label: Is the clock's web page protected by a username and password?
+      description: Some features (icons, order of the apps) go through the clock's web page on AWTRIX 3.
+      options:
+        - "No"
+        - "Yes"
+        - I don't know
+
+  - type: textarea
+    id: app
+    attributes:
+      label: The app involved
+      description: In the panel, click **Export**, pick the app and copy the result here. Remove anything private.
+      render: json
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Settings → System → Logs → **Show raw logs**, then search for `awtrix_studio`. Paste the lines around the problem.
+      render: text

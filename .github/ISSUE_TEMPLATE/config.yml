@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: FAQ
+    url: https://github.com/3615nulsi/ha-awtrix-studio#-faq
+    about: Common questions, answered in the README.

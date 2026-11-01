@@ -1,0 +1,27 @@
+name: Idea or feature request
+description: Suggest something Awtrix Studio could do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like to do?
+      description: Describe what you want to show on the clock, rather than how it should be built.
+      placeholder: Show `750 GB` instead of `750` by adding a unit after an entity's value.
+    validations:
+      required: true
+
+  - type: textarea
+    id: today
+    attributes:
+      label: How do you do it today?
+      description: A workaround, a template, or not possible at all.
+
+  - type: dropdown
+    id: firmware
+    attributes:
+      label: Clock firmware
+      options:
+        - AWTRIX 3
+        - AWTRIX NG
+        - Both / doesn't matter
