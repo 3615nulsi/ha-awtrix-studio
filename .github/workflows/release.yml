@@ -28,7 +28,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Read the version
         id: version
         run: echo "tag=v$(jq -r .version custom_components/awtrix_studio/manifest.json)" >> "$GITHUB_OUTPUT"
