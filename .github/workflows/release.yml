@@ -2,6 +2,7 @@ name: Release
 
 # Publishes a GitHub release (used by HACS) when the version in manifest.json
 # changes on main. Can also be started by hand from the Actions tab.
+# Run it by hand on a branch to publish a beta from there.
 # Release notes come from .github/release-notes/v<version>.md when present,
 # otherwise they are generated from the commits.
 
@@ -31,9 +32,15 @@ jobs:
             echo "$TAG is already released."
             exit 0
           fi
+          # A beta (0.12.0b1) or release candidate is a pre-release: HACS
+          # only offers it to those who ask for beta versions.
+          kind=()
+          if [[ "$TAG" =~ (a|b|rc)[0-9]+$ ]]; then
+            kind=(--prerelease)
+          fi
           notes=".github/release-notes/$TAG.md"
           if [ -f "$notes" ]; then
-            gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --notes-file "$notes"
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" "${kind[@]}" --notes-file "$notes"
           else
-            gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --generate-notes
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" "${kind[@]}" --generate-notes
           fi

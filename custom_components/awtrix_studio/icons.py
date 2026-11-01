@@ -7,6 +7,11 @@ be uploaded to the clock first. AWTRIX 3 can only play animated icons from its
 memory: they are stored there automatically (see clock_files), with their
 first image as a fallback. AWTRIX NG plays an animated GIF sent inline.
 
+In a layout (AWTRIX NG on a TC002), an icon whose box is at least 16x16 is
+sent at double size, as a 16x16 GIF: next to text drawn at full resolution,
+an 8x8 icon would look tiny. An animated icon stays animated when the payload
+leaves room for it.
+
 An icon named by a bare number (`2422`, as AWTRIX's own icon downloader names
 its files) is a file of the clock when the clock has one by that name, and the
 LaMetric icon of that number otherwise. Other names keep their usual meaning:
@@ -27,7 +32,7 @@ import aiohttp
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
-from PIL import Image
+from PIL import Image, ImageSequence
 
 from .clock_files import ClockFiles
 from .const import DOMAIN
@@ -51,6 +56,8 @@ MAX_SIDE: Final = 64
 # An icon stored on the clock at this size fills a TC002's icon area at full
 # resolution: the preview draws it as is.
 LARGE: Final = 16
+# Layout boxes at least this large get the icon at double size.
+DOUBLE_BOX: Final = 16
 # How long a failed download is not retried, in seconds.
 RETRY_AFTER: Final = 300
 
@@ -132,6 +139,59 @@ def convert(data: bytes) -> dict[str, Any]:
     return icon
 
 
+def _double_frame(frame: Image.Image) -> Image.Image:
+    rgba = frame.convert("RGBA")
+    if rgba.size != (SIZE, SIZE):
+        rgba = rgba.resize((SIZE, SIZE), Image.Resampling.NEAREST)
+    background = Image.new("RGBA", rgba.size, (0, 0, 0, 255))
+    rgb = Image.alpha_composite(background, rgba).convert("RGB")
+    return rgb.resize((2 * SIZE, 2 * SIZE), Image.Resampling.NEAREST)
+
+
+def double(icon: dict[str, Any], *, animated: bool) -> str:
+    """Return an icon at double size, as a Base64 GIF (lossless, unlike JPEG).
+
+    Runs in the executor. Only the first image unless `animated` is set and
+    the icon has a GIF; its frames keep their timing.
+    """
+    if animated and "gif" in icon:
+        with Image.open(
+            BytesIO(base64.b64decode(icon["gif"])), formats=("GIF",)
+        ) as image:
+            frames, durations = [], []
+            for frame in ImageSequence.Iterator(image):
+                frames.append(_double_frame(frame))
+                durations.append(frame.info.get("duration", 100))
+    else:
+        image = Image.new("RGB", (SIZE, SIZE))
+        image.putdata([(p >> 16 & 255, p >> 8 & 255, p & 255) for p in icon["pixels"]])
+        frames, durations = [_double_frame(image)], [0]
+    buffer = BytesIO()
+    if len(frames) > 1:
+        frames[0].save(
+            buffer,
+            format="GIF",
+            save_all=True,
+            append_images=frames[1:],
+            duration=durations,
+            loop=0,
+        )
+    else:
+        frames[0].save(buffer, format="GIF")
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def _double_box(region: dict[str, Any]) -> bool:
+    box = region.get("box")
+    return (
+        isinstance(box, list)
+        and len(box) == 4
+        and all(isinstance(v, int) and not isinstance(v, bool) for v in box)
+        and box[2] >= DOUBLE_BOX
+        and box[3] >= DOUBLE_BOX
+    )
+
+
 class IconStore:
     """Downloaded LaMetric icons, kept in Home Assistant's storage."""
 
@@ -144,6 +204,8 @@ class IconStore:
         self._icons: dict[str, dict[str, Any]] = {}
         self._pending: dict[int, asyncio.Future[dict[str, Any] | None]] = {}
         self._failed: dict[int, float] = {}
+        # Icons at double size, by (id, animated); not stored, cheap to redo.
+        self._doubled: dict[tuple[int, bool], str] = {}
 
     async def async_load(self) -> None:
         """Read the icons downloaded earlier."""
@@ -268,16 +330,35 @@ class IconStore:
             return payload
         if not isinstance(page, dict):
             return payload
+        if "icon" in page:
+            await self._resolve_page_icon(page, files, driver)
+        layout = page.get("layout")
+        if (
+            driver is not None
+            and isinstance(layout, dict)
+            and isinstance(layout.get("regions"), list)
+            and any(isinstance(r, dict) and "icon" in r for r in layout["regions"])
+        ):
+            await self._resolve_layout(page, layout, driver, files)
+        return _dumps(page)
+
+    async def _resolve_page_icon(
+        self,
+        page: dict[str, Any],
+        files: ClockFiles | None,
+        driver: FirmwareDriver | None,
+    ) -> None:
+        """Resolve the `icon` key of a page in place."""
         name = page.get("icon")
         if (lametric_id := await _gallery_id(name, files)) is None:
-            return payload
+            return
         icon = await self.async_get(lametric_id)
         if icon is None:
-            if icon_id(name) is None:
-                # A bare number: maybe a file the clock's listing did not show.
-                return payload
-            page.pop("icon")
-        elif (
+            if icon_id(name) is not None:
+                page.pop("icon")
+            # A bare number: maybe a file the clock's listing did not show.
+            return
+        if (
             files is not None
             and "gif" in icon
             and await files.async_ensure(
@@ -296,7 +377,67 @@ class IconStore:
                 and len(_dumps(page).encode()) > limit
             ):
                 page["icon"] = driver.inline_icon(icon["jpeg"], None)
-        return _dumps(page)
+
+    async def _resolve_layout(
+        self,
+        page: dict[str, Any],
+        layout: dict[str, Any],
+        driver: FirmwareDriver,
+        files: ClockFiles | None,
+    ) -> None:
+        """Send the gallery icons of a layout inline, doubled in large boxes.
+
+        Animated icons first; if the payload is then too large for the clock,
+        their first image. An icon the gallery does not have leaves the layout,
+        since a region shows exactly one thing.
+        """
+        found: dict[int, dict[str, Any] | None] = {}
+        for region in layout["regions"]:
+            if isinstance(region, dict) and "icon" in region:
+                lametric_id = await _gallery_id(region["icon"], files)
+                if lametric_id is not None and lametric_id not in found:
+                    found[lametric_id] = await self.async_get(lametric_id)
+        if not found:
+            return
+        for animated in (True, False):
+            regions = []
+            for region in layout["regions"]:
+                resolved = region
+                if isinstance(region, dict) and "icon" in region:
+                    resolved = await self._resolve_region(
+                        region, found, files, animated
+                    )
+                if resolved is not None:
+                    regions.append(resolved)
+            page["layout"] = {**layout, "regions": regions}
+            limit = driver.max_payload
+            if limit is None or len(_dumps(page).encode()) <= limit:
+                return
+
+    async def _resolve_region(
+        self,
+        region: dict[str, Any],
+        found: dict[int, dict[str, Any] | None],
+        files: ClockFiles | None,
+        animated: bool,
+    ) -> dict[str, Any] | None:
+        name = region["icon"]
+        lametric_id = await _gallery_id(name, files)
+        if lametric_id is None:
+            return region
+        icon = found.get(lametric_id)
+        if icon is None:
+            return region if icon_id(name) is None else None
+        if _double_box(region):
+            key = (lametric_id, animated and "gif" in icon)
+            if key not in self._doubled:
+                self._doubled[key] = await self.hass.async_add_executor_job(
+                    lambda: double(icon, animated=key[1])
+                )
+            return {**region, "icon": f"data:image/gif;base64,{self._doubled[key]}"}
+        if animated and "gif" in icon:
+            return {**region, "icon": f"data:image/gif;base64,{icon['gif']}"}
+        return {**region, "icon": f"data:image/jpeg;base64,{icon['jpeg']}"}
 
 
 async def _gallery_id(name: Any, files: ClockFiles | None) -> int | None:

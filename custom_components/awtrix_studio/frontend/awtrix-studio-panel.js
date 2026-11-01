@@ -30,6 +30,16 @@ const EFFECTS = ["BrickBreaker", "Checkerboard", "ColorWaves", "Fade", "Firework
 const PALETTES = ["Cloud", "Lava", "Ocean", "Forest", "Stripe", "Party", "Heat", "Rainbow"];
 const OVERLAYS = ["clear", "snow", "rain", "drizzle", "storm", "thunder", "frost"];
 const BUILTIN_APPS = ["Time", "Date", "Temperature", "Humidity", "Battery"];
+// Layouts of a simple app on a TC002 (AWTRIX NG), drawn on all 52 × 16 LEDs.
+const LAYOUTS = ["value", "title_value", "value_bar", "two_lines"];
+// Fonts a layout offers, all legible on the TC002; the first is the default.
+const VALUE_FONTS = ["matrix-chunky8", "matrix-light8", "matrix-chunky8x6", "matrix-light8x6"];
+const TEXT_FONTS = ["matrix-light6", "matrix-chunky6"];
+
+/** What drawMatrix needs from a rendered page: its grid and its icons. */
+function drawn(rendered) {
+  return { width: rendered.width, height: rendered.height, scale: rendered.scale, icon: rendered.icon, icons: rendered.icons };
+}
 
 const STARTER_APP_TEMPLATE = `{#- Render a JSON object (one page) or a list of objects
     (pages that alternate). Any key of the AWTRIX custom app API works. -#}
@@ -582,7 +592,7 @@ class AwtrixStudioPanel extends HTMLElement {
     const page = item.pages[item.page_index] || item.pages[0];
     const grid = this._appGrid();
     const rendered = renderPage(page, grid);
-    drawMatrix(card.canvas, rendered.pixels, { ...this._cells(6, grid.width * grid.scale), gap: 1, icon: rendered.icon, ...grid });
+    drawMatrix(card.canvas, rendered.pixels, { ...this._cells(6, grid.width * grid.scale), gap: 1, ...drawn(rendered) });
     card.toggle.setAttribute("aria-checked", item.enabled ? "true" : "false");
     const visible = item.enabled && item.pages.length > 0;
     card.root.classList.toggle("dim", !visible);
@@ -667,8 +677,8 @@ class AwtrixStudioPanel extends HTMLElement {
     const current = this._items("app").find((a) => a.on_screen && a.pages.length);
     const grid = this._appGrid();
     const rendered = renderPage(current ? current.pages[current.page_index] || current.pages[0] : null, grid);
-    addIndicators(rendered.pixels, this._indicatorPages(), grid.width, grid.height);
-    return snapshot ? rendered : { pixels: new Array(grid.width * grid.height).fill(null), icon: null };
+    addIndicators(rendered.pixels, this._indicatorPages(), rendered.width, rendered.height);
+    return snapshot ? rendered : { pixels: new Array(grid.width * grid.height).fill(null), ...grid };
   }
 
   _drawMirror() {
@@ -682,7 +692,7 @@ class AwtrixStudioPanel extends HTMLElement {
     } else {
       const rendered = this._simulatedScreen();
       const grid = this._appGrid();
-      drawMatrix(this._mirrorCanvas, rendered.pixels, { ...this._cells(12, grid.width * grid.scale), icon: rendered.icon, glow: true, ...grid });
+      drawMatrix(this._mirrorCanvas, rendered.pixels, { ...this._cells(12, grid.width * grid.scale), glow: true, ...drawn(rendered) });
       this._mirrorCaption.textContent = this._snapshot?.features?.screen ? this.t("live_waiting") : this.t("simulated_note");
     }
   }
@@ -885,6 +895,7 @@ class AwtrixStudioPanel extends HTMLElement {
     }
     if (plan.replaces && choice.action === "replace") row.append(h("div", { class: "muted" }, this.t("import_will_replace")));
     if (plan.warnings.includes("other_firmware")) row.append(h("div", { class: "warn" }, this.t("import_other_firmware")));
+    if (plan.warnings.includes("layout_dropped")) row.append(h("div", { class: "warn" }, this.t("import_layout_dropped")));
     if (plan.missing_entities.length) {
       row.append(h("div", { class: "warn" }, this.t("import_missing", { list: plan.missing_entities.join(", ") })));
     }
@@ -1002,6 +1013,9 @@ class AwtrixStudioPanel extends HTMLElement {
         segment: 0,
         separator: typeof d.separator === "string" ? d.separator : " ",
         icon: d.icon || "",
+        layout: d.layout || "",
+        value_font: d.value_font || VALUE_FONTS[0],
+        text_font: d.text_font || TEXT_FONTS[0],
         progress: d.progress ?? false,
         progress_entity: d.progress_entity || "",
         progress_min: d.progress_min ?? 0,
@@ -1148,7 +1162,7 @@ class AwtrixStudioPanel extends HTMLElement {
 
   _progressPayload() {
     const f = this._form;
-    if (!f.progress) return { progress: false };
+    if (!f.progress && f.layout !== "value_bar") return { progress: false };
     const payload = { progress: true, progress_entity: f.progress_entity.trim(), progress_min: numberOrEmpty(f.progress_min),
       progress_max: numberOrEmpty(f.progress_max), progress_bg: f.progress_bg };
     if (!f.progress_same_color) payload.progress_color = f.progress_color;
@@ -1178,7 +1192,7 @@ class AwtrixStudioPanel extends HTMLElement {
       this._syncSegment();
       const [first, ...next] = f.segments.map((s) => this._segmentPayload(s));
       return { mode: "simple", app_name: f.app_name, ...first, segments: next, separator: f.separator, icon: f.icon,
-        ...this._progressPayload(), display: this._displayPayload() };
+        layout: f.layout, value_font: f.value_font, text_font: f.text_font, ...this._progressPayload(), display: this._displayPayload() };
     }
     if (kind === "app") {
       return { mode: "template", app_name: f.app_name, template: f.template, page_interval: numberOrEmpty(f.page_interval),
@@ -1301,7 +1315,8 @@ class AwtrixStudioPanel extends HTMLElement {
     const control = h("div", { class: "row icon-row" }, this._iconPreview, input,
       h("button", { class: "btn small", type: "button", onClick: () => this._openIconPicker() }, icon("search"), this.t("icon_pick")));
     this._drawIconPreview();
-    return this._field("icon", this.t("icon"), control, this.t("icon_help_studio"), true);
+    const help = f.layout ? `${this.t("icon_help_studio")} ${this.t("layout_icon_note")}` : this.t("icon_help_studio");
+    return this._field("icon", this.t("icon"), control, help, true);
   }
 
   async _drawIconPreview() {
@@ -1416,7 +1431,7 @@ class AwtrixStudioPanel extends HTMLElement {
 
   // ---------------------------------------------------------- progress
 
-  _progressSection() {
+  _progressSection(always = false) {
     const f = this._form;
     const body = h("div", { class: "color-body" });
     const render = () => {
@@ -1441,7 +1456,7 @@ class AwtrixStudioPanel extends HTMLElement {
         onChange: (e) => { f.progress = e.target.checked; render(); this._schedulePreview(); } }),
       h("span", {}, this.t("progress_show"), h("span", { class: "muted", style: "display:block" }, this.t("progress_help"))));
     render();
-    return h("fieldset", { class: "field wide" }, h("legend", {}, this.t("progress")), toggle, body);
+    return h("fieldset", { class: "field wide" }, h("legend", {}, this.t("progress")), always ? null : toggle, body);
   }
 
   _renderFields() {
@@ -1478,12 +1493,15 @@ class AwtrixStudioPanel extends HTMLElement {
     }
 
     if (kind === "app") {
-      box.append(this._segmentsSection(), this._iconField());
-      if (f.segments.length > 1) {
+      box.append(this._layoutField(), this._fontFields(), this._segmentsSection(), this._iconField());
+      if (f.segments.length > 1 && !f.layout) {
         box.append(this._field("separator", this.t("separator"), this._input("separator", "text", { maxlength: 8, spellcheck: "false" }),
           this.t("separator_help")));
       }
-      box.append(this._progressSection(), this._displaySection());
+      // A layout shows a bar only when it is made for one.
+      if (!f.layout) box.append(this._progressSection());
+      else if (f.layout === "value_bar") box.append(this._progressSection(true));
+      box.append(this._displaySection());
     } else {
       box.append(this._field("entity_id", this.t("entity"), this._entityInput(), null, true));
       const effect = h("select", { id: "f-effect", onChange: (e) => { f.effect = e.target.value; this._schedulePreview(); } },
@@ -1496,6 +1514,62 @@ class AwtrixStudioPanel extends HTMLElement {
     }
   }
 
+  // ------------------------------------------------------------ layouts
+
+  /** Layouts need AWTRIX NG on a large display (a TC002, 52 × 16). */
+  _layoutsAvailable() {
+    return this._isNG() && (this._snapshot?.display?.height || 0) >= 16;
+  }
+
+  /** How a simple app is drawn: one line at double size, or a layout. */
+  _layoutField() {
+    const f = this._form;
+    if (!this._layoutsAvailable() && !f.layout) return null;
+    const select = h("select", { id: "f-layout", onChange: (e) => this._setLayout(e.target.value, select) },
+      ...["", ...LAYOUTS].map((v) => h("option", { value: v }, this.t(`layout_${v || "line"}`))));
+    select.value = f.layout;
+    return this._field("layout", this.t("layout"), select, this.t(`layout_${f.layout || "line"}_help`), true);
+  }
+
+  /** The fonts of a layout: the value's, and the title's or the lines'. */
+  _fontFields() {
+    const f = this._form;
+    if (!f.layout) return null;
+    const select = (key, fonts) => {
+      const control = h("select", { id: `f-${key}`, onChange: (e) => { f[key] = e.target.value; this._schedulePreview(); } },
+        ...fonts.map((font) => h("option", { value: font }, this.t(`font_${font}`))));
+      control.value = f[key];
+      return control;
+    };
+    const text = f.layout === "title_value" || f.layout === "two_lines";
+    return h("div", { class: "fields wide" },
+      this._field("value_font", this.t("value_font"), select("value_font", VALUE_FONTS),
+        this.t(f.layout === "two_lines" ? "value_font_alone_help" : "value_font_help")),
+      text ? this._field("text_font", this.t(f.layout === "two_lines" ? "lines_font" : "title_font"), select("text_font", TEXT_FONTS)) : null);
+  }
+
+  _setLayout(value, select) {
+    const f = this._form;
+    this._syncSegment();
+    // Two lines show two entities, the other layouts one.
+    const keep = value === "two_lines" ? 2 : value ? 1 : MAX_SEGMENTS;
+    if (f.segments.length > keep) {
+      if (!window.confirm(this.t("layout_drop_entities", { n: keep }))) {
+        select.value = f.layout;
+        return;
+      }
+      f.segments.splice(keep);
+    }
+    // A second entity is added and opened, ready to be filled in.
+    if (value === "two_lines" && f.segments.length < 2) f.segment = f.segments.push(this._segmentForm({})) - 1;
+    f.segment = Math.min(f.segment, f.segments.length - 1);
+    SEGMENT_KEYS.forEach((key) => { f[key] = f.segments[f.segment][key]; });
+    f.layout = value;
+    if (value === "value_bar") f.progress = true;
+    this._renderFields();
+    this._schedulePreview();
+  }
+
   // ------------------------------------------------- entities of a line
 
   /** The entities of a simple app: tabs to pick one, and its fields. */
@@ -1503,7 +1577,8 @@ class AwtrixStudioPanel extends HTMLElement {
     const f = this._form;
     const many = f.segments.length > 1;
     const name = (s, i) => s.label || s.entity_id.split(".").pop() || this.t("segment_n", { n: i + 1 });
-    const fieldset = h("fieldset", { class: "field wide" }, h("legend", {}, this.t(many ? "entities_line" : "entity")));
+    const legend = f.layout === "two_lines" ? "entities_lines" : many ? "entities_line" : "entity";
+    const fieldset = h("fieldset", { class: "field wide" }, h("legend", {}, this.t(legend)));
     if (many) {
       const tabs = h("div", { class: "tabs segment-tabs", role: "tablist", "aria-label": this.t("entities_line") });
       f.segments.forEach((s, i) => tabs.append(h("button", { role: "tab", type: "button", "aria-selected": i === f.segment ? "true" : "false",
@@ -1514,20 +1589,25 @@ class AwtrixStudioPanel extends HTMLElement {
         tabs.children[f.segment].textContent = `${f.segment + 1}. ${name(f.segments[f.segment], f.segment)}`;
       });
       fieldset.append(tabs);
-      if (this._isNG()) fieldset.append(h("div", { class: "muted" }, this.t("segments_ng_note")));
+      if (this._isNG() && !f.layout) fieldset.append(h("div", { class: "muted" }, this.t("segments_ng_note")));
     }
     fieldset.append(h("div", { class: "fields" },
       this._field("entity_id", this.t("entity"), this._entityInput(), null, true),
-      this._field("label", this.t("label"), this._input("label", "text", { maxlength: 64 }), this.t("label_help")),
+      f.layout === "title_value"
+        ? this._field("label", this.t("title_label"), this._input("label", "text", { maxlength: 64 }), this.t("title_label_help"))
+        : this._field("label", this.t("label"), this._input("label", "text", { maxlength: 64 }), this.t("label_help")),
       this._field("color", this.t("text_color"), this._input("color", "color")),
       this._field("decimals", this.t("decimals"), this._input("decimals", "number", { min: 0, max: 4, step: 1 }), this.t("decimals_help")),
       this._check("show_unit", this.t("show_unit")),
       this._check("hide_when_zero", this.t("hide_when_zero"), many ? this.t("hide_when_zero_segment") : null),
       this._colorSection(["fixed", "steps", "gradient"], "color_by_value")));
-    fieldset.append(h("div", { class: "row" },
-      f.segments.length < MAX_SEGMENTS
-        ? h("button", { class: "btn small", type: "button", onClick: () => this._addSegment() }, icon("plus"), this.t("add_segment")) : null,
-      many ? h("button", { class: "btn small", type: "button", onClick: () => this._removeSegment() }, this.t("remove_segment")) : null));
+    // A layout has a fixed number of entities: its own choice sets it.
+    if (!f.layout) {
+      fieldset.append(h("div", { class: "row" },
+        f.segments.length < MAX_SEGMENTS
+          ? h("button", { class: "btn small", type: "button", onClick: () => this._addSegment() }, icon("plus"), this.t("add_segment")) : null,
+        many ? h("button", { class: "btn small", type: "button", onClick: () => this._removeSegment() }, this.t("remove_segment")) : null));
+    }
     return fieldset;
   }
 
@@ -1898,7 +1978,7 @@ class AwtrixStudioPanel extends HTMLElement {
     } else {
       const grid = this._appGrid();
       const rendered = renderPage(page, grid);
-      drawMatrix(this._previewCanvas, rendered.pixels, { ...this._cells(11, grid.width * grid.scale), icon: rendered.icon, glow: true, ...grid });
+      drawMatrix(this._previewCanvas, rendered.pixels, { ...this._cells(11, grid.width * grid.scale), glow: true, ...drawn(rendered) });
       this._previewNote.textContent = [rendered.overflow ? this.t("overflow_note") : this.t("simulated_note"),
         rendered.effect ? this.t("effect_not_simulated", { name: rendered.effect }) : ""].filter(Boolean).join(" ");
     }

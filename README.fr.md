@@ -35,7 +35,7 @@ Awtrix Studio pilote les horloges sous l'un ou l'autre firmware, et les reconna�
 | | AWTRIX 3 | AWTRIX NG |
 |---|---|---|
 | **Horloges** | Ulanzi TC001, horloges DIY à ESP32 | Ulanzi TC002, et TC001 ou horloges DIY à ESP32 flashées avec NG |
-| **Écran** | 32 × 8 | 32 × 8 ; sur le TC002, 52 × 16, les apps étant dessinées en double taille sur une grille de 26 × 8 |
+| **Écran** | 32 × 8 | 32 × 8 ; sur le TC002, 52 × 16 : les apps sont dessinées en double taille sur une grille de 26 × 8, ou au pixel près avec une **mise en page** |
 | **Apps simples, indicateurs, options d'affichage** | ✅ | ✅ écrits pour vous dans le JSON propre à NG |
 | **Mode modèle** | JSON AWTRIX 3 | JSON AWTRIX NG ; les clés refusées par l'horloge sont affichées dans le panneau |
 | **Icônes LaMetric animées** | déposées sur l'horloge par sa page web | déposées sur l'horloge par son API de fichiers, ou envoyées avec l'app (NG 1.2 ou plus récent) |
@@ -80,6 +80,7 @@ Choisissez une entité, ajoutez un libellé, une icône et des couleurs, et c'es
 | **Masquer quand la valeur vaut 0** | Pratique pour la production solaire la nuit. |
 | **Barre de progression** | Une barre en bas de l'écran, à partir de l'entité de l'app ou d'une autre, vide et pleine aux valeurs de votre choix. Elle peut suivre la couleur du texte. |
 | **Ajouter une entité** | Affiche plusieurs entités sur la même ligne, par exemple `UP 750 DN 30`. Chacune a son libellé, ses décimales, son unité et sa couleur (fixe, par paliers ou en dégradé) ; un onglet par entité permet de passer de l'une à l'autre, et un **séparateur** se place entre deux. Une entité sans valeur quitte la ligne, et l'app quitte la rotation quand il n'en reste aucune. Sur AWTRIX NG, toute la ligne prend la couleur de la première entité. |
+| **Mise en page** (TC002 sous AWTRIX NG) | Dessine l'app sur les 52 × 16 LED, une LED par pixel, au lieu d'une ligne en double taille : **Valeur**, **Titre et valeur** (le libellé en petit au-dessus), **Valeur et barre de progression**, ou **Deux entités, une par ligne**. L'icône est facultative ; une icône de la galerie y est dessinée en 16 × 16. Vous choisissez les polices parmi celles qui restent lisibles : pour la valeur, une police de 8 pixels (épaisse par défaut, fine, ou large pour une valeur courte), et pour le titre ou les lignes, une police de 6 pixels (fine par défaut, ou épaisse). |
 | **Couleur selon la valeur** | **Fixe**, par **paliers** (jusqu'à deux seuils, chacun avec sa couleur), ou en **dégradé** : choisissez-en un tout prêt (*plus c'est haut, pire c'est*, *plus c'est bas, pire c'est*, *idéal au milieu*, *froid → chaud*) et réglez ses bornes, ou créez le vôtre avec 2 à 5 points. Pour une température, du CO2, de l'humidité ou une batterie, des bornes adaptées sont proposées. |
 
 L'app quitte aussi la rotation d'elle-même tant que son entité est indisponible.

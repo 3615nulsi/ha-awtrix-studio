@@ -34,6 +34,7 @@ from .const import (
     CONF_HIDE_WHEN_ZERO,
     CONF_ICON,
     CONF_LABEL,
+    CONF_LAYOUT,
     CONF_PROGRESS,
     CONF_PROGRESS_BG,
     CONF_PROGRESS_COLOR,
@@ -43,8 +44,10 @@ from .const import (
     CONF_SEGMENTS,
     CONF_SEPARATOR,
     CONF_SHOW_UNIT,
+    CONF_TEXT_FONT,
     CONF_THRESHOLD_1,
     CONF_THRESHOLD_2,
+    CONF_VALUE_FONT,
     DEFAULT_ACTIVE_STATE,
     DEFAULT_COLOR,
     DEFAULT_EFFECT_INTERVAL,
@@ -58,6 +61,12 @@ from .const import (
     FIRMWARE_AWTRIX3,
     FIRMWARE_AWTRIX_NG,
     INDICATOR_COLOR_MODES,
+    LAYOUT_TITLE_VALUE,
+    LAYOUT_TWO_LINES,
+    LAYOUT_VALUE_BAR,
+    LAYOUTS,
+    TEXT_FONTS,
+    VALUE_FONTS,
 )
 from .gradients import InvalidGradientError, jinja_lines, resolve_stops
 
@@ -87,6 +96,22 @@ KEYS: dict[str, dict[str, str]] = {
         "fade": "fadeMs",
     },
 }
+
+
+# Layouts (AWTRIX NG on a TC002) count every pixel of the 52 x 16 display. The
+# icon, when there is one, fills the left 16 columns: an 8 x 8 gallery icon is
+# drawn at double size there (see icons). Fonts are chosen among legible ones:
+# 8 pixels high for the value, 6 for the title and the two lines.
+DISPLAY_WIDTH = 52
+ICON_BOX = [0, 0, 16, 16]
+TEXT_X = 17
+TITLE_COLOR = "#969696"
+
+
+def _font(options: Mapping[str, Any], key: str, fonts: Sequence[str]) -> str:
+    """The font chosen for a layout, or the default (the first)."""
+    font = options.get(key)
+    return font if font in fonts else fonts[0]
 
 
 def _keys(firmware: str) -> dict[str, str]:
@@ -179,6 +204,8 @@ def build_app_template(
     options: Mapping[str, Any], firmware: str = FIRMWARE_AWTRIX3
 ) -> str:
     """Template for a simple app: entities shown as text, with an icon."""
+    if firmware == FIRMWARE_AWTRIX_NG and options.get(CONF_LAYOUT) in LAYOUTS:
+        return _build_layout_template(options)
     if len(app_segments(options)) > 1:
         return _build_line_template(options, firmware)
     keys = _keys(firmware)
@@ -252,7 +279,166 @@ def _build_line_template(options: Mapping[str, Any], firmware: str) -> str:
     return "\n".join(lines)
 
 
-def _text_lines(options: Mapping[str, Any]) -> list[str]:
+def _box(x: int, y: int, width: int, height: int) -> str:
+    return f"[{x}, {y}, {width}, {height}]"
+
+
+def _text_region(
+    region_id: str, box: str, text: str, font: str, color: str, *, extra: str = ""
+) -> str:
+    """A text region, as Jinja: `text` and `color` are expressions."""
+    return (
+        f'{{"id": "{region_id}", "box": {box}, "text": {text},'
+        f' "font": "{font}", "color": {color}{extra}}}'
+    )
+
+
+def _build_layout_template(options: Mapping[str, Any]) -> str:
+    """An app drawn on the whole display of a TC002, in boxes (AWTRIX NG).
+
+    The icon sits on the left when there is one. Then, by layout: the value
+    alone, a title above the value, the value above a progress bar, or two
+    entities, one per line.
+    """
+    layout = options[CONF_LAYOUT]
+    icon = str(options.get(CONF_ICON) or "").strip()
+    x = TEXT_X if icon else 0
+    width = DISPLAY_WIDTH - x
+    regions = (
+        f'[{{"id": "icon", "box": {ICON_BOX}, "icon": {jinja_str(icon)}}}]'
+        if icon
+        else "[]"
+    )
+    lines = [HEADER]
+    if layout == LAYOUT_TWO_LINES:
+        return "\n".join(lines + _two_lines(options, regions, x, width))
+
+    entity = _entity_id(options.get(CONF_ENTITY_ID))
+    title = str(options.get(CONF_LABEL) or "").strip()
+    lines += [
+        f"{{%- set raw = states({jinja_str(entity)}) -%}}",
+        "{%- set num = raw | float if raw | is_number else none -%}",
+        "{%- if raw in ['unknown', 'unavailable', ''] -%}",
+        "[]",
+    ]
+    if options.get(CONF_HIDE_WHEN_ZERO, False):
+        lines += ["{%- elif num is not none and num == 0 -%}", "[]"]
+    lines.append("{%- else -%}")
+    lines += _text_lines(options, with_label=layout != LAYOUT_TITLE_VALUE)
+
+    value_box = _box(x, 0, width, 16)
+    if layout == LAYOUT_TITLE_VALUE and title:
+        title_region = _text_region(
+            "title",
+            _box(x, 0, width, 7),
+            jinja_str(title),
+            _font(options, CONF_TEXT_FONT, TEXT_FONTS),
+            jinja_str(TITLE_COLOR),
+        )
+        regions = f"{regions} + [{title_region}]"
+        value_box = _box(x, 8, width, 8)
+    elif layout == LAYOUT_VALUE_BAR:
+        value_box = _box(x, 0, width, 11)
+    value_font = _font(options, CONF_VALUE_FONT, VALUE_FONTS)
+    value = _text_region("value", value_box, "text", value_font, "color")
+    lines.append(f"{{%- set regions = {regions} + [{value}] -%}}")
+    if layout == LAYOUT_VALUE_BAR:
+        lines += _bar_lines(options, entity, _box(x, 12, width, 3))
+    lines += [
+        '{{ {"layout": {"version": 1, "regions": regions}} | tojson }}',
+        "{%- endif -%}",
+    ]
+    return "\n".join(lines)
+
+
+def _two_lines(
+    options: Mapping[str, Any], regions: str, x: int, width: int
+) -> list[str]:
+    """Two entities, one per line; one left alone takes the whole height."""
+    lines = ["{%- set parts = [] -%}"]
+    for number, segment in enumerate(app_segments(options)[:2], 1):
+        entity = _entity_id(segment.get(CONF_ENTITY_ID))
+        shown = "raw not in ['unknown', 'unavailable', '']"
+        if segment.get(CONF_HIDE_WHEN_ZERO, False):
+            shown += " and not (num is not none and num == 0)"
+        lines += [
+            f"{{#- Line {number}: {entity} -#}}",
+            f"{{%- set raw = states({jinja_str(entity)}) -%}}",
+            "{%- set num = raw | float if raw | is_number else none -%}",
+            f"{{%- if {shown} -%}}",
+            *_text_lines(segment),
+            '{%- set parts = parts + [{"t": text, "c": color}] -%}',
+            "{%- endif -%}",
+        ]
+    value_font = _font(options, CONF_VALUE_FONT, VALUE_FONTS)
+    line_font = _font(options, CONF_TEXT_FONT, TEXT_FONTS)
+    alone = _text_region(
+        "line1", _box(x, 0, width, 16), "parts[0].t", value_font, "parts[0].c"
+    )
+    start = ', "align": "start"'
+    first = _text_region(
+        "line1",
+        _box(x, 0, width, 8),
+        "parts[0].t",
+        line_font,
+        "parts[0].c",
+        extra=start,
+    )
+    second = _text_region(
+        "line2",
+        _box(x, 8, width, 8),
+        "parts[1].t",
+        line_font,
+        "parts[1].c",
+        extra=start,
+    )
+    return [
+        *lines,
+        "{%- if not parts -%}",
+        "[]",
+        "{%- elif parts | length == 1 -%}",
+        f'{{{{ {{"layout": {{"version": 1, "regions": {regions} + [{alone}]}}}}'
+        " | tojson }}",
+        "{%- else -%}",
+        f'{{{{ {{"layout": {{"version": 1, "regions": {regions}'
+        f" + [{first}, {second}]}}}} | tojson }}}}",
+        "{%- endif -%}",
+    ]
+
+
+def _bar_lines(options: Mapping[str, Any], entity: str, box: str) -> list[str]:
+    """Lines adding a progress bar region, from a value between min and max."""
+    source = _entity_id(options.get(CONF_PROGRESS_ENTITY) or entity)
+    low, high = _progress_range(options)
+    bar = (
+        jinja_str(rgb_to_hex(options[CONF_PROGRESS_COLOR], DEFAULT_COLOR))
+        if options.get(CONF_PROGRESS_COLOR)
+        else "color"
+    )
+    track = jinja_str(rgb_to_hex(options.get(CONF_PROGRESS_BG), DEFAULT_PROGRESS_BG))
+    return [
+        "{#- Progress bar: the value between min and max, as 0 to 100. -#}",
+        f"{{%- set p = states({jinja_str(source)}) -%}}",
+        "{%- if p | is_number -%}",
+        f"{{%- set ratio = (p | float - {low!r}) / {high - low!r} -%}}",
+        '{%- set regions = regions + [{"id": "bar", "box": ' + box + ","
+        ' "progress": ([[ratio * 100, 0] | max, 100] | min) | round(0) | int,'
+        f' "color": {bar}, "trackColor": {track}}}] -%}}',
+        "{%- endif -%}",
+    ]
+
+
+def _progress_range(options: Mapping[str, Any]) -> tuple[float, float]:
+    low = _number(options.get(CONF_PROGRESS_MIN))
+    high = _number(options.get(CONF_PROGRESS_MAX))
+    low = DEFAULT_PROGRESS_MIN if low is None else low
+    high = DEFAULT_PROGRESS_MAX if high is None else high
+    if high <= low:
+        raise InvalidSimpleOptionsError("the progress maximum must exceed the minimum")
+    return low, high
+
+
+def _text_lines(options: Mapping[str, Any], *, with_label: bool = True) -> list[str]:
     """Lines setting `text` and `color` for one entity, from `raw` and `num`."""
     entity = _entity_id(options.get(CONF_ENTITY_ID))
     label = str(options.get(CONF_LABEL) or "").strip()
@@ -274,7 +460,7 @@ def _text_lines(options: Mapping[str, Any]) -> list[str]:
         lines.append(f"{{%- set value = {rounded} if num is not none else raw -%}}")
 
     text = "value | string"
-    if label:
+    if label and with_label:
         text = f"{jinja_str(label + ' ')} ~ value"
     if show_unit:
         lines += [
@@ -350,12 +536,7 @@ def _progress_lines(
     """Lines adding a progress bar to `page`, from a value between min and max."""
     source = options.get(CONF_PROGRESS_ENTITY) or entity
     source = _entity_id(source)
-    low = _number(options.get(CONF_PROGRESS_MIN))
-    high = _number(options.get(CONF_PROGRESS_MAX))
-    low = DEFAULT_PROGRESS_MIN if low is None else low
-    high = DEFAULT_PROGRESS_MAX if high is None else high
-    if high <= low:
-        raise InvalidSimpleOptionsError("the progress maximum must exceed the minimum")
+    low, high = _progress_range(options)
     bar = (
         jinja_str(rgb_to_hex(options[CONF_PROGRESS_COLOR], DEFAULT_COLOR))
         if options.get(CONF_PROGRESS_COLOR)
