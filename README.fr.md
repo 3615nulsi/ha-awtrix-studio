@@ -77,6 +77,7 @@ Choisissez une entité, ajoutez un libellé, une icône et des couleurs, et c'es
 | **Couleur du texte** | La couleur par défaut. |
 | **Décimales** | Arrondit la valeur ; laissez vide pour l'afficher telle quelle. |
 | **Afficher l'unité** | Ajoute `°C`, `%`, `kW`… après la valeur. |
+| **Unité personnalisée** | Affichée à la place de l'unité de l'entité, par exemple `Go` après un simple `750`. Vide : celle de l'entité. |
 | **Masquer quand la valeur vaut 0** | Pratique pour la production solaire la nuit. |
 | **Barre de progression** | Une barre en bas de l'écran, à partir de l'entité de l'app ou d'une autre, vide et pleine aux valeurs de votre choix. Elle peut suivre la couleur du texte. |
 | **Ajouter une entité** | Affiche plusieurs entités sur la même ligne, par exemple `UP 750 DN 30`. Chacune a son libellé, ses décimales, son unité et sa couleur (fixe, par paliers ou en dégradé) ; un onglet par entité permet de passer de l'une à l'autre, et un **séparateur** se place entre deux. Une entité sans valeur quitte la ligne, et l'app quitte la rotation quand il n'en reste aucune. Sur AWTRIX NG, toute la ligne prend la couleur de la première entité. |

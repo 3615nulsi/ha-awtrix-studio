@@ -69,6 +69,12 @@ async def test_co2_with_thresholds(hass: HomeAssistant) -> None:
         ("12", "km", {"label": "Nico"}, "Nico 12 km"),
         ("idle", None, {}, "idle"),
         ("3.0", None, {"decimals": 0}, "3"),
+        # A custom unit replaces the entity's, or gives one to a bare number.
+        ("750", None, {"unit": "GB"}, "750 GB"),
+        ("0.42", "kW", {"unit": "kWh"}, "0.42 kWh"),
+        ("54", "%", {"unit": "°"}, "54°"),
+        ("12", "km", {"unit": '"}}{{'}, '12 "}}{{'),
+        ("0.42", "kW", {"unit": "kWh", "show_unit": False}, "0.42"),
     ],
 )
 async def test_text_format(

@@ -77,6 +77,7 @@ Choose an entity, add a label, an icon and colors, and you're done. The preview 
 | **Text color** | The default color. |
 | **Decimals** | Round the value, or leave empty to show it as is. |
 | **Show the unit** | Adds `°C`, `%`, `kW`… after the value. |
+| **Custom unit** | Shown instead of the entity's unit, for example `GB` after a bare `750`. Empty: the entity's own. |
 | **Hide when the value is 0** | Handy for solar production at night. |
 | **Progress bar** | A bar at the bottom of the screen, from the app's entity or another one, empty and full at the values you choose. It can follow the text color. |
 | **Add an entity** | Shows several entities on the same line, like `UP 750 DN 30`. Each one has its own label, decimals, unit and color (fixed, steps or gradient); a tab per entity switches between them, and a **separator** goes between two. An entity without a value leaves the line, and the app leaves the rotation when none is left. On AWTRIX NG the whole line takes the color of the first entity. |

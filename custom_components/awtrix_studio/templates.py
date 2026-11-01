@@ -47,6 +47,7 @@ from .const import (
     CONF_TEXT_FONT,
     CONF_THRESHOLD_1,
     CONF_THRESHOLD_2,
+    CONF_UNIT,
     CONF_VALUE_FONT,
     DEFAULT_ACTIVE_STATE,
     DEFAULT_COLOR,
@@ -463,9 +464,14 @@ def _text_lines(options: Mapping[str, Any], *, with_label: bool = True) -> list[
     if label and with_label:
         text = f"{jinja_str(label + ' ')} ~ value"
     if show_unit:
+        custom_unit = str(options.get(CONF_UNIT) or "").strip()
+        unit = (
+            jinja_str(custom_unit)
+            if custom_unit
+            else f"state_attr({jinja_str(entity)}, 'unit_of_measurement') or ''"
+        )
         lines += [
-            "{%- set unit = state_attr("
-            f"{jinja_str(entity)}, 'unit_of_measurement') or '' -%}}",
+            f"{{%- set unit = {unit} -%}}",
             # Like Home Assistant: no space before °C, °F or %.
             "{%- set sep = '' if unit[:1] in ['', '°', '%'] else ' ' -%}",
         ]

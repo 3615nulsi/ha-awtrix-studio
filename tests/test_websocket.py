@@ -210,6 +210,18 @@ async def test_save_validates_and_strips_unknown_keys(
     assert (await save({**simple, "threshold_1": 20}))["errors"] == {
         "color_1": "color_required"
     }
+    assert (await save({**simple, "unit": 3}))["errors"] == {"unit": "invalid_value"}
+
+    # A custom unit is kept only when typed, and cut to its maximum length.
+    custom = await save(
+        {**simple, "app_name": "custom", "unit": " gigabytes-in-all!! "}
+    )
+    await hass.async_block_till_done()
+    assert entry.subentries[custom["subentry_id"]].data["unit"] == "gigabytes-in-all"
+    assert json.loads(published(mqtt_mock, f"{PREFIX}/custom/custom")[-1]) == {
+        "text": "21.5 gigabytes-in-all",
+        "color": "#FFFFFF",
+    }
 
     result = await save(
         {**simple, "evil": "<script>", "threshold_1": 20, "color_1": "#ff0000"}

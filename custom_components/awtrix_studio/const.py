@@ -43,6 +43,9 @@ CONF_ICON: Final = "icon"
 CONF_COLOR: Final = "color"
 CONF_DECIMALS: Final = "decimals"
 CONF_SHOW_UNIT: Final = "show_unit"
+# A unit typed by the user, shown instead of the entity's own.
+CONF_UNIT: Final = "unit"
+MAX_UNIT: Final = 16
 CONF_HIDE_WHEN_ZERO: Final = "hide_when_zero"
 CONF_THRESHOLD_1: Final = "threshold_1"
 CONF_COLOR_1: Final = "color_1"

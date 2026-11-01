@@ -21,7 +21,7 @@ const MIRROR_STALE_MS = 5000;
 // the one being edited at its top level (so every field works unchanged) and
 // all of them in `segments`.
 const MAX_SEGMENTS = 5;
-const SEGMENT_KEYS = ["entity_id", "label", "color", "decimals", "show_unit", "hide_when_zero", "threshold_1", "color_1",
+const SEGMENT_KEYS = ["entity_id", "label", "color", "decimals", "show_unit", "unit", "hide_when_zero", "threshold_1", "color_1",
   "threshold_2", "color_2", "color_mode", "gradient", "_presetTouched", "gradient_min", "gradient_max", "gradient_stops"];
 
 // AWTRIX 3 background effects, palettes and weather overlays.
@@ -1060,6 +1060,7 @@ class AwtrixStudioPanel extends HTMLElement {
       color: toHex(d.color, "#FFFFFF"),
       decimals: d.decimals ?? "",
       show_unit: d.show_unit ?? true,
+      unit: d.unit || "",
       hide_when_zero: d.hide_when_zero ?? false,
       threshold_1: d.threshold_1 ?? "",
       color_1: toHex(d.color_1, "#FFB74D"),
@@ -1185,7 +1186,7 @@ class AwtrixStudioPanel extends HTMLElement {
 
   _segmentPayload(s) {
     return { entity_id: s.entity_id, label: s.label, color: s.color, decimals: numberOrEmpty(s.decimals),
-      show_unit: s.show_unit, hide_when_zero: s.hide_when_zero,
+      show_unit: s.show_unit, unit: s.unit, hide_when_zero: s.hide_when_zero,
       threshold_1: numberOrEmpty(s.threshold_1), color_1: s.color_1, threshold_2: numberOrEmpty(s.threshold_2), color_2: s.color_2,
       ...this._gradientPayload(s) };
   }
@@ -1282,6 +1283,7 @@ class AwtrixStudioPanel extends HTMLElement {
 
   _entityChanged() {
     const f = this._form;
+    if (this._unitInput) this._unitInput.placeholder = this._entityUnit() || this.t("custom_unit_placeholder");
     if (f.color_mode !== "gradient" || f.gradient === "custom" || !this._hass.states[f.entity_id]) { this._updateGradientBar(); return; }
     const hadRange = f.gradient_min !== "" || f.gradient_max !== "";
     this._suggestRange();
@@ -1291,6 +1293,22 @@ class AwtrixStudioPanel extends HTMLElement {
     } else {
       this._updateGradientBar();
     }
+  }
+
+  /** "Show the unit", and a unit of one's own shown in place of the entity's. */
+  _unitFields() {
+    const f = this._form;
+    const unit = this._input("unit", "text", { maxlength: 16, spellcheck: "false", disabled: !f.show_unit,
+      placeholder: this._entityUnit() || this.t("custom_unit_placeholder") });
+    this._unitInput = unit;
+    const show = this._check("show_unit", this.t("show_unit"));
+    show.querySelector("input").addEventListener("change", (e) => { unit.disabled = !e.target.checked; });
+    return [show, this._field("unit", this.t("custom_unit"), unit, this.t("custom_unit_help"))];
+  }
+
+  /** The unit Home Assistant gives the entity being edited, if any. */
+  _entityUnit() {
+    return this._hass.states[this._form.entity_id]?.attributes?.unit_of_measurement || "";
   }
 
   _check(key, label, help) {
@@ -1603,8 +1621,8 @@ class AwtrixStudioPanel extends HTMLElement {
         : this._field("label", this.t("label"), this._input("label", "text", { maxlength: 64 }), this.t("label_help")),
       this._field("color", this.t("text_color"), this._input("color", "color")),
       this._field("decimals", this.t("decimals"), this._input("decimals", "number", { min: 0, max: 4, step: 1 }), this.t("decimals_help")),
-      this._check("show_unit", this.t("show_unit")),
       this._check("hide_when_zero", this.t("hide_when_zero"), many ? this.t("hide_when_zero_segment") : null),
+      this._unitFields(),
       this._colorSection(["fixed", "steps", "gradient"], "color_by_value")));
     // A layout has a fixed number of entities: its own choice sets it.
     if (!f.layout) {
