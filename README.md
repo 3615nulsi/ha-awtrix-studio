@@ -11,6 +11,7 @@ Works with **AWTRIX 3** and **AWTRIX NG**: Ulanzi TC001, Ulanzi TC002 and DIY cl
 [![Validate](https://github.com/3615nulsi/ha-awtrix-studio/actions/workflows/validate.yml/badge.svg)](https://github.com/3615nulsi/ha-awtrix-studio/actions/workflows/validate.yml)
 [![Tests](https://github.com/3615nulsi/ha-awtrix-studio/actions/workflows/tests.yml/badge.svg)](https://github.com/3615nulsi/ha-awtrix-studio/actions/workflows/tests.yml)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories)
+[![Downloads](https://img.shields.io/github/downloads/3615nulsi/ha-awtrix-studio/total.svg)](https://github.com/3615nulsi/ha-awtrix-studio/releases)
 
 🇫🇷 [Lire en français](README.fr.md)
 
