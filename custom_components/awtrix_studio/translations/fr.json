@@ -1,12 +1,19 @@
 {
   "config": {
+    "flow_title": "{name}",
     "abort": {
       "already_configured": "Cette horloge est déjà configurée.",
-      "mqtt_not_configured": "Configurez d'abord l'intégration MQTT : Awtrix Studio communique avec l'horloge via votre broker MQTT."
+      "mqtt_not_configured": "Configurez d'abord l'intégration MQTT : Awtrix Studio communique avec l'horloge via votre broker MQTT.",
+      "not_awtrix_ng": "Ce message ne vient pas d'une horloge AWTRIX NG.",
+      "reconfigure_successful": "L'horloge a été mise à jour. Ses apps passent aux nouveaux réglages."
     },
     "error": {
       "invalid_prefix": "Saisissez le préfixe MQTT de l'horloge, sans espace, `#` ni `+`.",
-      "not_detected": "L'horloge n'a pas répondu sur ce préfixe. Vérifiez le préfixe, ou choisissez le firmware vous-même."
+      "not_detected": "L'horloge n'a pas répondu sur ce préfixe. Vérifiez le préfixe, ou choisissez le firmware vous-même.",
+      "prefix_in_use": "Une autre horloge utilise déjà ce préfixe.",
+      "invalid_username": "64 caractères au plus, sans `:`.",
+      "invalid_password": "64 caractères au plus.",
+      "username_required": "Saisissez le nom d'utilisateur qui va avec le mot de passe."
     },
     "step": {
       "user": {
@@ -19,6 +26,26 @@
         "data_description": {
           "firmware": "Firmware installé sur l'horloge. **Détecter automatiquement** interroge l'horloge, qui doit être allumée et connectée à MQTT.",
           "prefix": "Le préfixe défini dans les réglages MQTT de l'horloge, par exemple `awtrix_1f1b94`."
+        }
+      },
+      "discovery_confirm": {
+        "title": "Horloge AWTRIX NG trouvée",
+        "description": "Une horloge AWTRIX NG utilise le préfixe MQTT `{prefix}`. L'ajouter à Awtrix Studio ?"
+      },
+      "reconfigure": {
+        "title": "Reconfigurer l'horloge",
+        "description": "Les apps sont retirées des anciens topics puis publiées de nouveau avec les nouveaux réglages. Les modèles ne sont pas traduits : après un changement de firmware, réécrivez-les dans le JSON du nouveau firmware.",
+        "data": {
+          "firmware": "Firmware",
+          "prefix": "Préfixe MQTT",
+          "username": "Utilisateur de la page web",
+          "password": "Mot de passe de la page web"
+        },
+        "data_description": {
+          "firmware": "**Détecter automatiquement** interroge l'horloge, qui doit être allumée et connectée à MQTT.",
+          "prefix": "Le préfixe défini dans les réglages MQTT de l'horloge.",
+          "username": "Seulement si la page web de l'horloge demande un mot de passe (les icônes animées et l'ordre des apps l'utilisent). Laissez vide sinon.",
+          "password": "Laissez vide pour garder le mot de passe actuel. Enregistré dans la configuration de Home Assistant, jamais réaffiché."
         }
       }
     }

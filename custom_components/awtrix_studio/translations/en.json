@@ -1,12 +1,19 @@
 {
   "config": {
+    "flow_title": "{name}",
     "abort": {
       "already_configured": "This clock is already configured.",
-      "mqtt_not_configured": "Set up the MQTT integration first: Awtrix Studio talks to the clock through your MQTT broker."
+      "mqtt_not_configured": "Set up the MQTT integration first: Awtrix Studio talks to the clock through your MQTT broker.",
+      "not_awtrix_ng": "This message does not come from an AWTRIX NG clock.",
+      "reconfigure_successful": "The clock has been updated. Its apps move to the new settings."
     },
     "error": {
       "invalid_prefix": "Enter the clock's MQTT prefix, without spaces, `#` or `+`.",
-      "not_detected": "The clock did not answer on this prefix. Check the prefix, or choose the firmware yourself."
+      "not_detected": "The clock did not answer on this prefix. Check the prefix, or choose the firmware yourself.",
+      "prefix_in_use": "Another clock already uses this prefix.",
+      "invalid_username": "Use at most 64 characters, without `:`.",
+      "invalid_password": "Use at most 64 characters.",
+      "username_required": "Enter the user name that goes with the password."
     },
     "step": {
       "user": {
@@ -19,6 +26,26 @@
         "data_description": {
           "firmware": "Firmware running on the clock. **Detect automatically** asks the clock, which must be on and connected to MQTT.",
           "prefix": "The prefix set in the clock's MQTT settings, for example `awtrix_1f1b94`."
+        }
+      },
+      "discovery_confirm": {
+        "title": "AWTRIX NG clock found",
+        "description": "An AWTRIX NG clock uses the MQTT prefix `{prefix}`. Add it to Awtrix Studio?"
+      },
+      "reconfigure": {
+        "title": "Reconfigure the clock",
+        "description": "Apps are removed from the old topics and published again with the new settings. Templates are not translated: after a change of firmware, edit them in the new firmware's JSON.",
+        "data": {
+          "firmware": "Firmware",
+          "prefix": "MQTT prefix",
+          "username": "Web page user name",
+          "password": "Web page password"
+        },
+        "data_description": {
+          "firmware": "**Detect automatically** asks the clock, which must be on and connected to MQTT.",
+          "prefix": "The prefix set in the clock's MQTT settings.",
+          "username": "Only if the clock's web page asks for a password (animated icons and the app order use it). Leave empty when it does not.",
+          "password": "Leave empty to keep the current password. Stored in Home Assistant's configuration, never shown again."
         }
       }
     }

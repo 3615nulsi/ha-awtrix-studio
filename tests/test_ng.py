@@ -111,8 +111,51 @@ async def test_apps_use_ng_topics(
     assert published(mqtt_mock, APP_TOPIC)[-1] == ""
 
 
+async def test_startup_republishes_once(
+    hass: HomeAssistant, mqtt_mock: MqttMockHAClient, freezer: FrozenDateTimeFactory
+) -> None:
+    """The broker, the address and the version arriving together: one republish."""
+    entry = ng_entry()
+    await setup(hass, entry)
+    count = len(published(mqtt_mock, APP_TOPIC))
+
+    entry.runtime_data._on_connection(True)
+    async_fire_mqtt_message(
+        hass,
+        f"{PREFIX}/state/device",
+        json.dumps({"version": "1.2.2", "ipAddress": "192.168.1.42"}),
+    )
+    async_fire_mqtt_message(hass, f"{PREFIX}/availability", "offline")
+    async_fire_mqtt_message(hass, f"{PREFIX}/availability", "online")
+    await hass.async_block_till_done()
+    assert len(published(mqtt_mock, APP_TOPIC)) == count
+    await tick(hass, freezer, 1.1)
+    assert len(published(mqtt_mock, APP_TOPIC)) == count + 1
+    await tick(hass, freezer, 10)
+    assert len(published(mqtt_mock, APP_TOPIC)) == count + 1
+
+    # A later restart is still noticed.
+    async_fire_mqtt_message(hass, f"{PREFIX}/availability", "offline")
+    async_fire_mqtt_message(hass, f"{PREFIX}/availability", "online")
+    await tick(hass, freezer, 1.1)
+    assert len(published(mqtt_mock, APP_TOPIC)) == count + 2
+
+
+async def test_unload_cancels_a_pending_republish(
+    hass: HomeAssistant, mqtt_mock: MqttMockHAClient, freezer: FrozenDateTimeFactory
+) -> None:
+    """Nothing is published for a clock that was unloaded meanwhile."""
+    entry = ng_entry()
+    await setup(hass, entry)
+    count = len(published(mqtt_mock, APP_TOPIC))
+    entry.runtime_data._on_connection(True)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await tick(hass, freezer, 5)
+    assert len(published(mqtt_mock, APP_TOPIC)) == count
+
+
 async def test_back_online_republishes(
-    hass: HomeAssistant, mqtt_mock: MqttMockHAClient
+    hass: HomeAssistant, mqtt_mock: MqttMockHAClient, freezer: FrozenDateTimeFactory
 ) -> None:
     """The clock coming back online gets its apps again (TC002 restarts too)."""
     await setup(hass, ng_entry())
@@ -126,7 +169,7 @@ async def test_back_online_republishes(
     async_fire_mqtt_message(hass, f"{PREFIX}/availability", "offline")
     await hass.async_block_till_done()
     async_fire_mqtt_message(hass, f"{PREFIX}/availability", "online")
-    await hass.async_block_till_done()
+    await tick(hass, freezer, 1.1)
     assert len(published(mqtt_mock, APP_TOPIC)) == count + 1
 
 

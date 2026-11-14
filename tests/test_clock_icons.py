@@ -118,6 +118,42 @@ async def test_icon_of_the_clock(
     assert not any("notes" in url for url in fetched)
 
 
+async def test_password_protected_web_page(
+    hass: HomeAssistant,
+    mqtt_mock: MqttMockHAClient,
+    hass_ws_client: WebSocketGenerator,
+    aioclient_mock: AiohttpClientMocker,
+) -> None:
+    """The clock's credentials, stored with the clock, go with every request."""
+    aioclient_mock.get(f"{CLOCK}/list", json=[{"type": "file", "name": "smile.gif"}])
+    aioclient_mock.get(f"{CLOCK}/ICONS/smile.gif", content=gif())
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title=PREFIX,
+        unique_id=PREFIX,
+        data={
+            "firmware": "awtrix3",
+            "prefix": PREFIX,
+            "username": "admin",
+            "password": "secret",
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    async_fire_mqtt_message(
+        hass,
+        f"{PREFIX}/stats",
+        json.dumps({"uptime": 1, "ip_address": "192.168.1.161"}),
+    )
+    await hass.async_block_till_done()
+
+    response = await ask(hass, hass_ws_client, entry.entry_id, "smile")
+    assert response["result"]["pixels"][0] == 0xFF0000
+    assert len(aioclient_mock.mock_calls) == 2
+    for call in aioclient_mock.mock_calls:
+        assert call[3]["Authorization"] == "Basic YWRtaW46c2VjcmV0"
+
+
 @pytest.mark.parametrize("name", ["../secret", "a/b", "smile.gif", "", "x" * 65])
 async def test_icon_name_is_validated(
     hass: HomeAssistant,
