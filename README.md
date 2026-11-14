@@ -54,6 +54,7 @@ You need Home Assistant 2025.8 or newer, the [MQTT integration](https://www.home
    </details>
 
 2. **Add your clock.** Go to **Settings → Devices & services → Add integration → Awtrix Studio**, and enter the clock's MQTT prefix (you'll find it in the clock's MQTT settings, for example `awtrix_1f1b94`). Leave the firmware on **Detect automatically**: Awtrix Studio asks the clock, which must be on and connected to MQTT.
+   An AWTRIX NG clock whose prefix is a single word (no `/`) shows up by itself under **Discovered**: just confirm it.
 
 3. **Create your first app.** Open **Awtrix Studio** in the sidebar, click **Add app**, pick a sensor… and watch it appear on your clock. 🎉
 
@@ -102,7 +103,7 @@ Every app, in either mode, has a **Display** section for the rest of the AWTRIX 
 
 **Order** lists the whole loop of the clock, its built-in apps (time, date, temperature…) and apps pushed by anything else included. Drag the apps or use the arrows, then save. The clock follows this order from then on: when an app comes back after being hidden, it goes back to its place instead of the end of the loop.
 
-AWTRIX 3 can only reorder apps through its web page, so Awtrix Studio uses the address the clock reports over MQTT, like for animated icons. If the web page cannot be reached (or is password protected), the order is kept and applied as soon as it can be. AWTRIX NG stores the order itself: it is sent once, and the apps you switched off on the clock stay off.
+AWTRIX 3 can only reorder apps through its web page, so Awtrix Studio uses the address the clock reports over MQTT, like for animated icons. If the web page cannot be reached, the order is kept and applied as soon as it can be. If the web page has a password, enter it by reconfiguring the clock (see the FAQ). AWTRIX NG stores the order itself: it is sent once, and the apps you switched off on the clock stay off.
 
 ### Indicators
 
@@ -233,9 +234,18 @@ Yes. Awtrix Studio only touches the apps and indicators you create with it, so e
 </details>
 
 <details>
+<summary><b>The clock's web page has a password. Or its MQTT prefix changed. What do I do?</b></summary>
+
+Open **Settings → Devices & services → Awtrix Studio**, then the clock's ⋮ menu → **Reconfigure**. There you can change:
+
+- the **MQTT prefix** and the **firmware** (with **Detect automatically**): the apps leave the old topics and are sent on the new ones;
+- the **user name and password** of the clock's web page, if you protected it. Animated icons and the app order (on AWTRIX 3) use the web page: with a password and no credentials, Awtrix Studio says so once in the log. Leave the password empty to keep the current one; clear the user name to remove both.
+</details>
+
+<details>
 <summary><b>What happens when the clock or Home Assistant restarts?</b></summary>
 
-Apps are sent again automatically, as well as when MQTT reconnects.
+Apps are sent again automatically, as well as when MQTT reconnects. Requests that arrive together (at startup: MQTT, the clock's address and its version) are grouped into a single resend, about a second later.
 </details>
 
 ## 🔒 Security
@@ -245,6 +255,7 @@ Apps are sent again automatically, as well as when MQTT reconnects.
 - App names that end up in MQTT topics are limited to letters, digits, `-` and `_`.
 - The panel never inserts raw HTML: everything is displayed as plain text.
 - Template mode runs regular Home Assistant templates, with the same safeguards as anywhere else in Home Assistant.
+- The web page password of a clock is stored with the clock's configuration in Home Assistant, sent only to the clock (at the private address it reports), never logged, never shown again, and removed from diagnostics. Diagnostics leave out templates and what they render too.
 
 <details>
 <summary><h2>🛠️ Under the hood</h2></summary>
@@ -252,7 +263,7 @@ Apps are sent again automatically, as well as when MQTT reconnects.
 - Each app's template is tracked by Home Assistant's template engine: it re-renders only when an entity it uses changes.
 - Data changes are throttled to at most one message per second per app.
 - The clock announces the app on screen (`<prefix>/stats/currentApp` on AWTRIX 3, `<prefix>/state/apps/active` on AWTRIX NG); by default, pages only alternate while that's the app being shown.
-- A reboot is spotted from the clock's uptime (`<prefix>/stats` on AWTRIX 3), or from the clock coming back `online` (`<prefix>/availability` on AWTRIX NG); apps are then sent again.
+- A reboot is spotted from the clock's uptime (`<prefix>/stats` on AWTRIX 3), or from the clock coming back `online` (`<prefix>/availability` on AWTRIX NG); apps are then sent again, and the list of icon files on the clock is read again (it is also read again when older than three minutes).
 - On AWTRIX NG, the clock answers every app it receives (`…/result`): a refusal is shown in the panel. NG silently drops any message over 8192 bytes (topic included): such a payload is not sent, and the panel says so.
 - Messages go straight to the MQTT client: no service calls, no events.
 - Each app and indicator has a **switch** entity: turning it off removes the app from the clock (or turns the indicator off) and keeps its settings. Its state survives restarts.

@@ -54,6 +54,7 @@ Il vous faut Home Assistant 2025.8 ou plus récent, l'[intégration MQTT](https:
    </details>
 
 2. **Ajouter l'horloge.** Allez dans **Paramètres → Appareils et services → Ajouter une intégration → Awtrix Studio**, et saisissez le préfixe MQTT de l'horloge (il figure dans ses réglages MQTT, par exemple `awtrix_1f1b94`). Laissez le firmware sur **Détecter automatiquement** : Awtrix Studio interroge l'horloge, qui doit être allumée et connectée à MQTT.
+   Une horloge AWTRIX NG dont le préfixe est un seul mot (sans `/`) apparaît d'elle-même sous **Découvert** : il suffit de la confirmer.
 
 3. **Créer votre première app.** Ouvrez **Awtrix Studio** dans la barre latérale, cliquez sur **Ajouter une app**, choisissez un capteur… et regardez-le apparaître sur l'horloge. 🎉
 
@@ -102,7 +103,7 @@ Chaque app, dans les deux modes, a une section **Affichage** pour le reste des r
 
 **Ordre** liste toute la boucle de l'horloge, y compris ses apps natives (heure, date, température…) et celles envoyées par d'autres outils. Faites glisser les apps ou utilisez les flèches, puis enregistrez. L'horloge suit ensuite cet ordre : une app qui revient après avoir été masquée reprend sa place au lieu de finir en bout de boucle.
 
-AWTRIX 3 ne permet de réordonner les apps que par sa page web : Awtrix Studio utilise donc l'adresse que l'horloge annonce en MQTT, comme pour les icônes animées. Si la page web n'est pas joignable (ou protégée par mot de passe), l'ordre est conservé et appliqué dès que possible. AWTRIX NG mémorise l'ordre lui-même : il est envoyé une fois, et les apps que vous avez désactivées sur l'horloge le restent.
+AWTRIX 3 ne permet de réordonner les apps que par sa page web : Awtrix Studio utilise donc l'adresse que l'horloge annonce en MQTT, comme pour les icônes animées. Si la page web n'est pas joignable, l'ordre est conservé et appliqué dès que possible. Si la page web a un mot de passe, saisissez-le en reconfigurant l'horloge (voir la FAQ). AWTRIX NG mémorise l'ordre lui-même : il est envoyé une fois, et les apps que vous avez désactivées sur l'horloge le restent.
 
 ### Les indicateurs
 
@@ -233,9 +234,18 @@ Oui. Awtrix Studio ne touche qu'aux apps et indicateurs créés avec elle : tout
 </details>
 
 <details>
+<summary><b>La page web de l'horloge a un mot de passe. Ou son préfixe MQTT a changé. Que faire ?</b></summary>
+
+Ouvrez **Paramètres → Appareils et services → Awtrix Studio**, puis le menu ⋮ de l'horloge → **Reconfigurer**. Vous pouvez y changer :
+
+- le **préfixe MQTT** et le **firmware** (avec **Détecter automatiquement**) : les apps quittent les anciens topics et sont envoyées sur les nouveaux ;
+- le **nom d'utilisateur et le mot de passe** de la page web de l'horloge, si vous l'avez protégée. Les icônes animées et l'ordre des apps (sous AWTRIX 3) passent par la page web : avec un mot de passe et sans identifiants, Awtrix Studio le signale une fois dans le journal. Laissez le mot de passe vide pour garder l'actuel ; videz le nom d'utilisateur pour retirer les deux.
+</details>
+
+<details>
 <summary><b>Que se passe-t-il quand l'horloge ou Home Assistant redémarre ?</b></summary>
 
-Les apps sont renvoyées automatiquement, de même quand MQTT se reconnecte.
+Les apps sont renvoyées automatiquement, de même quand MQTT se reconnecte. Les demandes qui arrivent ensemble (au démarrage : MQTT, l'adresse de l'horloge et sa version) sont regroupées en un seul envoi, une seconde plus tard environ.
 </details>
 
 ## 🔒 Sécurité
@@ -245,6 +255,7 @@ Les apps sont renvoyées automatiquement, de même quand MQTT se reconnecte.
 - Les noms d'app, qui finissent dans les topics MQTT, sont limités aux lettres, chiffres, `-` et `_`.
 - Le panneau n'insère jamais de HTML brut : tout est affiché comme du texte.
 - Le mode modèle exécute des modèles Home Assistant classiques, avec les mêmes garde-fous que partout ailleurs dans Home Assistant.
+- Le mot de passe de la page web d'une horloge est enregistré avec la configuration de l'horloge dans Home Assistant, envoyé seulement à l'horloge (à l'adresse privée qu'elle annonce), jamais journalisé, jamais réaffiché, et retiré des diagnostics. Les diagnostics laissent aussi de côté les modèles et ce qu'ils affichent.
 
 <details>
 <summary><h2>🛠️ Sous le capot</h2></summary>
@@ -252,7 +263,7 @@ Les apps sont renvoyées automatiquement, de même quand MQTT se reconnecte.
 - Le modèle de chaque app est suivi par le moteur de modèles de Home Assistant : il n'est recalculé que quand une entité qu'il utilise change.
 - Les changements de données sont limités à un message par seconde et par app au maximum.
 - L'horloge annonce l'app à l'écran (`<prefix>/stats/currentApp` sous AWTRIX 3, `<prefix>/state/apps/active` sous AWTRIX NG) ; par défaut, les pages n'alternent que pendant que l'app est affichée.
-- Un redémarrage se repère à l'uptime de l'horloge (`<prefix>/stats` sous AWTRIX 3), ou à son retour `online` (`<prefix>/availability` sous AWTRIX NG) ; les apps sont alors renvoyées.
+- Un redémarrage se repère à l'uptime de l'horloge (`<prefix>/stats` sous AWTRIX 3), ou à son retour `online` (`<prefix>/availability` sous AWTRIX NG) ; les apps sont alors renvoyées, et la liste des fichiers d'icônes de l'horloge est relue (elle l'est aussi quand elle date de plus de trois minutes).
 - Sous AWTRIX NG, l'horloge répond à chaque app reçue (`…/result`) : un refus est affiché dans le panneau. NG ignore sans rien dire un message de plus de 8192 octets (topic compris) : un tel payload n'est pas envoyé, et le panneau l'indique.
 - Les messages partent directement par le client MQTT : pas d'appel de service, pas d'événement.
 - Chaque app et chaque indicateur a une entité **interrupteur** : l'éteindre retire l'app de l'horloge (ou éteint l'indicateur) en gardant ses réglages. Son état survit aux redémarrages.

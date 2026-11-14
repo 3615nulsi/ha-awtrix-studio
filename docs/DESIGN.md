@@ -88,6 +88,16 @@ Confirmé dans la documentation NG (v1.2) et mis en œuvre dans le pilote NG :
 | Icône inline | JPEG en Base64, première image seulement | data URL ; un GIF animé est joué (message limité à 8 Ko, topic compris). Avant 1.2.0, JPEG en Base64 comme AWTRIX 3 : la version vient de `state/device` |
 | Fichiers d'icônes | `/list?dir=/ICONS`, envoi par `/edit` | `GET /api/v1/files?dir=/ICONS` → `{"files":[{"name","size"}]}`, envoi par `POST /api/v1/files` (GIF ou JPEG) |
 | Lire une icône | `GET /ICONS/<fichier>` | `GET /ICONS/<fichier>` |
+| Mot de passe du serveur web | HTTP Basic, optionnel | HTTP Basic, optionnel (désactivé par défaut) |
+
+Serveur web de l'horloge : quand sa page est protégée, l'utilisateur saisit le
+nom d'utilisateur et le mot de passe en reconfigurant l'horloge (§ 5.1) ; ils
+partent en en-tête `Authorization: Basic` avec chaque requête (liste et envoi
+d'icônes, lecture d'une icône, ordre des apps). Un refus 401 est signalé une
+fois dans le journal, en indiquant de reconfigurer l'horloge. La liste du
+dossier `/ICONS` est gardée trois minutes puis relue à la demande (pas de
+minuterie), et oubliée quand l'horloge redémarre ou revient en ligne : une
+icône effacée sur l'horloge n'y reste pas « présente » indéfiniment.
 
 Les dessins existent sur NG, sous forme de tableaux (`["pixel", x, y, c]`).
 
@@ -172,8 +182,31 @@ Awtrix Studio* :
 | Firmware | AWTRIX 3 | AWTRIX 3 ou AWTRIX NG (§ 4), détecté si possible |
 | Préfixe MQTT | `awtrix_1f1b94` | Préfixe des topics de l'horloge |
 
-v0.1 : le préfixe est saisi à la main. Plus tard : vérifier que l'horloge
-répond et proposer les préfixes déjà vus en découverte MQTT.
+**Découverte (AWTRIX NG)** : le manifeste déclare le topic MQTT
+`+/state/prefix`. L'horloge NG y publie, en message retenu, son propre préfixe :
+la découverte n'est proposée que si le payload est exactement le préfixe du
+topic (et un préfixe valide), avec ce préfixe comme `unique_id`, puis une étape
+de confirmation qui crée l'entrée en AWTRIX NG. Le joker `+` ne couvre qu'un
+niveau : un préfixe à plusieurs niveaux (`maison/horloge`) se saisit à la main.
+Pas de découverte pour AWTRIX 3, qui ne publie rien d'aussi identifiable.
+
+**Reconfiguration** (menu ⋮ de l'horloge → *Reconfigurer*) : préfixe et
+firmware (avec la même détection), plus le nom d'utilisateur et le mot de passe
+facultatifs de la page web de l'horloge. Un préfixe déjà utilisé par une autre
+horloge est refusé ; l'`unique_id` suit le préfixe, le titre aussi s'il était le
+préfixe. Un mot de passe laissé vide garde l'actuel (il n'est jamais renvoyé au
+navigateur) ; sans nom d'utilisateur, les identifiants sont supprimés. Quand le
+préfixe ou le firmware change, chaque app est retirée de son ancien topic avant
+le rechargement, qui la publie sur le nouveau ; un simple changement
+d'identifiants s'applique sans rechargement.
+
+**Diagnostics** : firmware, préfixe, version, présence de l'adresse et des
+identifiants (jamais leur valeur, masquée par `async_redact_data`), écran,
+nombre d'effets, de météos et de palettes, boucle et ordre, et pour chaque app
+ou indicateur : type, mode, réglages sans données privées, état, nombre de pages,
+dernières erreurs (abrégées). Les modèles et les pages rendues n'y figurent pas
+(ils nomment souvent des entités, des lieux ou des personnes) : un modèle n'est
+décrit que par sa longueur, une app simple par le nom de ses champs.
 
 ### 5.2 Une sous-entrée par app
 
@@ -228,6 +261,12 @@ l'intégration :
 - **Redémarrage de l'horloge** : détecté via le topic de statut du firmware (uptime qui
   repart à zéro) → toutes les apps sont republiées.
 - **Redémarrage de HA** : les apps sont republiées au démarrage.
+- **Republications groupées** : reconnexion au broker, adresse ou version de
+  l'horloge apprises, redémarrage ou retour en ligne de l'horloge demandent
+  chacun une republication complète. Elles sont regroupées en une seule, une
+  seconde après la première demande (une demande faite pendant la
+  republication en programme une autre) : au démarrage, les apps ne partent
+  plus trois fois en une seconde. L'arrêt de l'horloge annule celle en attente.
 - **Suppression d'une app** dans l'interface → l'app est supprimée de
   l'horloge.
 
@@ -306,6 +345,14 @@ code, sauf le champ « Modèle », qui est du code par définition.
   (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) sont acceptées : ni boucle
   locale, ni lien local (169.254.169.254), ni plage réservée ou de
   documentation.
+- **Identifiants de la page web** : stockés dans les données de l'entrée (comme
+  les autres intégrations HA), envoyés uniquement à cette adresse privée, jamais
+  journalisés ni renvoyés au navigateur (le formulaire de reconfiguration ne
+  pré-remplit pas le mot de passe), absents des exports d'apps, masqués dans les
+  diagnostics. Nom d'utilisateur sans `:` (Basic), 64 caractères au plus.
+- **Découverte MQTT** : n'importe quel client du broker peut publier sur
+  `<x>/state/prefix` ; il n'obtient qu'une proposition à confirmer par un
+  administrateur, et seulement si le payload est son propre préfixe, valide.
 - **Panneau (à venir)** : rendu des données uniquement en texte (échappement
   automatique de Lit, jamais `innerHTML` ni `eval`), commandes WebSocket réservées
   aux administrateurs et validées par schéma, aperçu simulé qui interprète le
