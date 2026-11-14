@@ -334,6 +334,26 @@ async def test_icons_doubled_in_large_boxes(
     page = json.loads(await store.async_resolve(big, None, driver))
     assert image(page["layout"]["regions"][0]["icon"]).n_frames == 1
 
+    # The topic counts too: what fits alone may not fit with it.
+    animated = await store.async_resolve(
+        layout(
+            {"id": "a", "box": [0, 0, 16, 16], "icon": "lametric:9"},
+            {"id": "t", "box": [17, 0, 35, 16], "text": "x"},
+        ),
+        None,
+        driver,
+    )
+    room = driver.max_payload - len(animated.encode())
+    fits = layout(
+        {"id": "a", "box": [0, 0, 16, 16], "icon": "lametric:9"},
+        {"id": "t", "box": [17, 0, 35, 16], "text": "x" * (1 + room)},
+    )
+    page = json.loads(await store.async_resolve(fits, None, driver))
+    assert image(page["layout"]["regions"][0]["icon"]).n_frames == 3
+    topic = driver.app_topic("tram")
+    page = json.loads(await store.async_resolve(fits, None, driver, topic))
+    assert image(page["layout"]["regions"][0]["icon"]).n_frames == 1
+
 
 @pytest.fixture
 def expected_lingering_timers() -> bool:

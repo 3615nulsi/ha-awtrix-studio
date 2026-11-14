@@ -24,6 +24,16 @@ AWTRIX3_HEIGHT: Final = 8
 NAME_RE: Final = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
 # Longest piece of an error message kept from a clock.
 MAX_ERROR: Final = 120
+# Longest error event read from a clock, and longest topic named in it.
+MAX_EVENT: Final = 4096
+MAX_TOPIC: Final = 256
+# Where a clock's address may be: the RFC 1918 private ranges only. Python's
+# `is_private` also covers link-local (169.254.169.254, cloud metadata),
+# 0.0.0.0/8, 240.0.0.0/4 and the documentation and benchmark ranges.
+LAN_NETWORKS: Final = tuple(
+    ipaddress.IPv4Network(net)
+    for net in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+)
 # Largest screen accepted from a clock (a TC002 is 52 x 16).
 MAX_SCREEN_PIXELS: Final = 64 * 32
 # A firmware version: "1.2.2", maybe "v1.2.2" or "1.2.0-beta".
@@ -69,18 +79,34 @@ def _json(payload: str) -> Any:
         return None
 
 
-def _private_ipv4(value: Any) -> str | None:
-    """Return a private IPv4 address read from the clock, else None."""
+def _lan_ipv4(value: Any) -> str | None:
+    """Return an RFC 1918 IPv4 address read from the clock, else None."""
     if not isinstance(value, str):
         return None
     try:
         address = ipaddress.ip_address(value)
     except ValueError:
         return None
-    # The address is read from MQTT: never send requests outside the LAN.
-    if address.version != 4 or not address.is_private or address.is_loopback:
+    # The address is read from MQTT and Home Assistant then sends requests to
+    # it: only ever to a home network, never to the host itself, a link-local
+    # service or a reserved range.
+    if not isinstance(address, ipaddress.IPv4Address) or not any(
+        address in network for network in LAN_NETWORKS
+    ):
         return None
     return str(address)
+
+
+def _error_text(error: Any) -> str:
+    """Return a short refusal from an NG error object `{code, message, field}`."""
+    if not isinstance(error, dict):
+        return "refused"
+    parts = [
+        error[key][:MAX_ERROR]
+        for key in ("field", "message", "code")
+        if isinstance(error.get(key), str) and error[key]
+    ]
+    return ": ".join(parts[:2]) or "refused"
 
 
 def _version(value: Any) -> tuple[int, int, int] | None:
@@ -315,6 +341,15 @@ class FirmwareDriver(ABC):
         return None
 
     @property
+    def error_topic(self) -> str | None:
+        """Return the topic on which the clock reports refused commands, if any."""
+        return None
+
+    def parse_error(self, payload: str) -> tuple[str | None, str] | None:
+        """Return (command topic if sent over MQTT, refusal) for an error event."""
+        return None
+
+    @property
     def can_reorder(self) -> bool:
         """Return True if the loop order can be read and changed."""
         return self.loop_path is not None and (
@@ -380,9 +415,9 @@ class Awtrix3Driver(FirmwareDriver):
         return _screen(AWTRIX3_WIDTH, AWTRIX3_HEIGHT, _json(payload))
 
     def parse_address(self, payload: str) -> str | None:
-        """The stats JSON carries `ip_address`; only private addresses count."""
+        """The stats JSON carries `ip_address`; only RFC 1918 addresses count."""
         data = _json(payload)
-        return _private_ipv4(data.get("ip_address")) if isinstance(data, dict) else None
+        return _lan_ipv4(data.get("ip_address")) if isinstance(data, dict) else None
 
     def icon_file(self, name: str) -> str:
         """Icons live in /ICONS; the app names them without the extension."""
@@ -516,9 +551,9 @@ class AwtrixNGDriver(FirmwareDriver):
         return _screen(data.get("width"), data.get("height"), data.get("pixels"))
 
     def parse_address(self, payload: str) -> str | None:
-        """The device state carries `ipAddress`; only private addresses count."""
+        """The device state carries `ipAddress`; only RFC 1918 addresses count."""
         data = _json(payload)
-        return _private_ipv4(data.get("ipAddress")) if isinstance(data, dict) else None
+        return _lan_ipv4(data.get("ipAddress")) if isinstance(data, dict) else None
 
     def parse_version(self, payload: str) -> tuple[int, int, int] | None:
         """The device state carries `version`."""
@@ -660,13 +695,34 @@ class AwtrixNGDriver(FirmwareDriver):
         command = topic.removesuffix("/result")
         if data["ok"]:
             return command, None
-        error = data.get("error") if isinstance(data.get("error"), dict) else {}
-        parts = [
-            str(error[key])[:MAX_ERROR]
-            for key in ("field", "message", "code")
-            if isinstance(error.get(key), str) and error[key]
-        ]
-        return command, ": ".join(parts[:2]) or "refused"
+        return command, _error_text(data.get("error"))
+
+    @property
+    def error_topic(self) -> str:
+        """Every refused command, from MQTT or HTTP (not retained)."""
+        return f"{self.prefix}/event/error"
+
+    def parse_error(self, payload: str) -> tuple[str | None, str] | None:
+        """`{"source": "mqtt", "request": <topic>, "error": {...}}`.
+
+        `request` is the full topic for MQTT, the method and path for HTTP:
+        only an MQTT topic under this clock's prefix is returned.
+        """
+        if len(payload) > MAX_EVENT:
+            return None
+        data = _json(payload)
+        if not isinstance(data, dict) or "error" not in data:
+            return None
+        request = data.get("request")
+        topic = (
+            request
+            if data.get("source") == "mqtt"
+            and isinstance(request, str)
+            and len(request) <= MAX_TOPIC
+            and request.startswith(f"{self.prefix}/")
+            else None
+        )
+        return topic, _error_text(data.get("error"))
 
 
 DRIVERS: dict[str, type[FirmwareDriver]] = {

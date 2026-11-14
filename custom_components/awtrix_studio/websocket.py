@@ -573,7 +573,12 @@ async def ws_test(
         else manager.driver.remove_payload
     )
     restore = manager.apps.get(subentry_id) if subentry_id else None
-    await manager.async_test(topic, payload, restore)
+    if (error := await manager.async_test(topic, payload, restore)) is not None:
+        # The clock would drop it without a word: say so instead.
+        connection.send_result(
+            msg["id"], {"errors": {"base": "payload_too_large"}, "detail": error}
+        )
+        return
     if kind == SUBENTRY_TYPE_APP and pages:
         await manager.async_send(manager.driver.show_app(data[CONF_APP_NAME]))
     connection.send_result(msg["id"], {"published": bool(pages)})

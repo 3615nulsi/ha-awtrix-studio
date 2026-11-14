@@ -168,10 +168,14 @@ export function renderPage(page, size = {}) {
   const areaStart = hasIcon ? 9 : 0;
   const areaWidth = W - areaStart;
 
-  // Text: a string, or segments [{t, c}].
+  // Text: a string, or segments: [{t, c}] on AWTRIX 3, [{text, color}] on
+  // AWTRIX NG, where a piece without a color is white whatever `textColor`
+  // says (only "palette", read as rainbow or gradient above, wins).
   const base = parseColor(page.color, "#FFFFFF");
   const segments = Array.isArray(page.text)
-    ? page.text.filter((s) => s && typeof s === "object").map((s) => ({ t: String(s.t ?? s.text ?? ""), c: parseColor(s.c ?? s.color, base) }))
+    ? page.text.filter((s) => s && typeof s === "object").map((s) => ("t" in s || "c" in s
+      ? { t: String(s.t ?? ""), c: parseColor(s.c, base) }
+      : { t: String(s.text ?? ""), c: parseColor(s.color, "#FFFFFF") }))
     : page.text !== undefined && page.text !== null
       ? [{ t: String(page.text), c: base }]
       : [];

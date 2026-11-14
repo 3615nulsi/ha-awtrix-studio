@@ -85,7 +85,7 @@ Confirmé dans la documentation NG (v1.2) et mis en œuvre dans le pilote NG :
 | Redémarrage | `uptime` qui repart à zéro | retour à `online` sur `<préfixe>/availability` (sur TC002, `uptimeSeconds` ne repart pas à zéro) |
 | Miroir d'écran | `sendscreen` → tableau de 256 couleurs | `cmd/screen/get` → `{"width","height","pixels"}` (52 × 16 sur TC002) |
 | Ordre des apps | HTTP seulement (`/api/reorder`), à réappliquer quand une app revient | MQTT (`cmd/apps/order`), mémorisé par l'horloge : envoyé une fois, avec la liste des apps désactivées lue en HTTP (`/api/v1/apps`) |
-| Icône inline | JPEG en Base64, première image seulement | data URL ; un GIF animé est joué (message limité à 8 Ko). Avant 1.2.0, JPEG en Base64 comme AWTRIX 3 : la version vient de `state/device` |
+| Icône inline | JPEG en Base64, première image seulement | data URL ; un GIF animé est joué (message limité à 8 Ko, topic compris). Avant 1.2.0, JPEG en Base64 comme AWTRIX 3 : la version vient de `state/device` |
 | Fichiers d'icônes | `/list?dir=/ICONS`, envoi par `/edit` | `GET /api/v1/files?dir=/ICONS` → `{"files":[{"name","size"}]}`, envoi par `POST /api/v1/files` (GIF ou JPEG) |
 | Lire une icône | `GET /ICONS/<fichier>` | `GET /ICONS/<fichier>` |
 
@@ -97,11 +97,19 @@ d'affichage restent stockées avec les noms AWTRIX 3, validées pour le firmware
 de l'horloge (pas de `topText` ni de `save` sur NG, vitesse d'effet en
 multiplicateur), et traduites en clés NG à la publication. Sur NG, une app n'a
 qu'une palette : celle du style de texte (arc-en-ciel, dégradé) l'emporte sur
-celle de l'effet. Une app simple à plusieurs entités envoie sur AWTRIX 3 un
-texte en fragments colorés (`[{"t", "c"}]`) ; NG n'en documente pas
-l'équivalent, la ligne y part en un seul texte, de la couleur de la première
-entité. Les refus de l'horloge (`…/result`) sont affichés dans le
-panneau, et les effets, météos et palettes sont lus sur `state/capabilities`.
+celle de l'effet. Une app simple à plusieurs entités envoie un texte en
+fragments colorés, chaque entité gardant sa couleur : `[{"t", "c"}]` sur
+AWTRIX 3 (couleur en hexadécimal sans `#`), `[{"text", "color"}]` sur NG
+(`"#RRGGBB"` ou `[r, g, b]` ; un fragment sans couleur est blanc, et le
+`textColor` de l'app est ignoré sauf `"palette"`, si bien que le texte
+arc-en-ciel ou en dégradé l'emporte toujours). La barre de progression prend
+la couleur de la première entité. Les refus de l'horloge (`…/result`, et
+`event/error` pour les commandes qui nomment le topic d'une de nos apps) sont
+affichés dans le panneau, et les effets, météos et palettes sont lus sur
+`state/capabilities`. NG ignore sans répondre un message de plus de 8192
+octets, topic compris : un tel payload n'est pas envoyé, l'app le signale dans
+le panneau jusqu'au prochain payload qui passe, et un test trop gros est
+refusé avec un message.
 
 Aperçu : le simulateur lit les clés et les dessins NG (tableaux `["rect", …]`,
 `pixels`, `bitmap`). La taille de l'écran vient de `state/capabilities`
@@ -269,6 +277,11 @@ code, sauf le champ « Modèle », qui est du code par définition.
 - **MQTT** : noms d'app limités à `[A-Za-z0-9_-]`, préfixe sans `#`, `+` ni
   espace : impossible de publier hors des topics de l'horloge. Les payloads sont
   produits par sérialisation JSON, jamais par concaténation.
+- **Adresse de l'horloge** : lue en MQTT, puis utilisée pour des requêtes HTTP
+  (icônes animées, ordre des apps). Seules les plages privées RFC 1918
+  (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) sont acceptées : ni boucle
+  locale, ni lien local (169.254.169.254), ni plage réservée ou de
+  documentation.
 - **Panneau (à venir)** : rendu des données uniquement en texte (échappement
   automatique de Lit, jamais `innerHTML` ni `eval`), commandes WebSocket réservées
   aux administrateurs et validées par schéma, aperçu simulé qui interprète le

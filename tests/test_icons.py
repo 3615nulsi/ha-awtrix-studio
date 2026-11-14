@@ -411,3 +411,26 @@ async def test_ng_plays_animated_icons_inline(
     big = json.dumps({"icon": "lametric:9", "text": "x" * 8000})
     page = json.loads(await store.async_resolve(big, None, driver))
     assert page["icon"] == f"data:image/jpeg;base64,{icon['jpeg']}"
+
+
+async def test_ng_icon_limit_counts_the_topic(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """The clock's 8192 bytes include the topic: a GIF that only fits without
+    it falls back to the first image."""
+    aioclient_mock.get(ICON_URL.format(id=9), content=png(frames=3))
+    store = IconStore(hass)
+    driver = AwtrixNGDriver("awtrixNG")
+    topic = driver.app_topic("tram")
+    gif_page = json.loads(
+        await store.async_resolve('{"icon":"lametric:9"}', None, driver)
+    )
+    room = driver.max_payload - len(json.dumps(gif_page, separators=(",", ":")))
+    # Text that leaves the GIF exactly enough room without the topic.
+    text = "x" * (room - len(',"text":""'))
+    payload = json.dumps({"icon": "lametric:9", "text": text})
+
+    page = json.loads(await store.async_resolve(payload, None, driver))
+    assert page["icon"].startswith("data:image/gif;")
+    page = json.loads(await store.async_resolve(payload, None, driver, topic))
+    assert page["icon"].startswith("data:image/jpeg;")

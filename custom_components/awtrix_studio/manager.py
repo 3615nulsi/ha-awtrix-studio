@@ -145,6 +145,9 @@ class ClockManager:
         self._enlarge: bool | None = None
         # The live app or indicator publishing on each topic.
         self._by_topic: dict[str, LiveApp] = {}
+        # Topics whose last payload was too large to send, and why. While a
+        # topic is here, the clock's answers are about older payloads.
+        self._too_large: dict[str, str] = {}
 
     @property
     def current_app(self) -> str | None:
@@ -256,6 +259,10 @@ class ClockManager:
             self._unsubscribers.append(
                 await mqtt.async_subscribe(self.hass, topic, self._on_result)
             )
+        if topic := self.driver.error_topic:
+            self._unsubscribers.append(
+                await mqtt.async_subscribe(self.hass, topic, self._on_error)
+            )
         self._unsubscribers.append(
             mqtt.async_subscribe_connection_status(self.hass, self._on_connection)
         )
@@ -290,11 +297,16 @@ class ClockManager:
 
     async def async_test(
         self, topic: str, payload: str, restore: LiveApp | None
-    ) -> None:
-        """Show a payload for a while, then bring the real content back."""
+    ) -> str | None:
+        """Show a payload for a while, then bring the real content back.
+
+        Return why the payload was not sent, if it was too large: it is then
+        not shown, and the app's own content stays on the clock.
+        """
+        if (error := await self._publish(topic, payload, test=True)) is not None:
+            return error
         if cancel := self._test_timers.pop(topic, None):
             cancel()
-        await self._publish(topic, payload)
 
         async def _restore(_now: datetime) -> None:
             self._test_timers.pop(topic, None)
@@ -304,6 +316,7 @@ class ClockManager:
                 await self._publish(topic, self.driver.remove_payload)
 
         self._test_timers[topic] = async_call_later(self.hass, TEST_DURATION, _restore)
+        return None
 
     # ---------------------------------------------------------- screen mirror
 
@@ -368,23 +381,69 @@ class ClockManager:
         for app in self.apps.values():
             await app.async_republish()
 
-    async def _publish(self, topic: str, payload: str) -> None:
+    async def _publish(
+        self, topic: str, payload: str, *, test: bool = False
+    ) -> str | None:
+        """Publish a payload; return why it was not sent if it is too large.
+
+        A test payload never changes what the panel says about the app on
+        that topic: the app's own content comes back after it.
+        """
         # Icons from the LaMetric gallery are sent inline, nothing is stored
         # on the clock.
-        payload = await self.icons.async_resolve(payload, self.files, self.driver)
+        payload = await self.icons.async_resolve(
+            payload, self.files, self.driver, topic
+        )
+        if (error := self._size_error(topic, payload)) is not None:
+            if test:
+                _LOGGER.warning("Test payload not sent to %s: %s", topic, error)
+            else:
+                self._set_too_large(topic, error)
+            return error
         try:
             await mqtt.async_publish(self.hass, topic, payload, qos=0, retain=False)
         except HomeAssistantError as err:
             _LOGGER.debug("Could not publish to %s: %s", topic, err)
-            return
+            return None
+        if not test and (error := self._too_large.pop(topic, None)) is not None:
+            # This one fits; the clock's answer (if it gives one) follows.
+            app = self._by_topic.get(topic)
+            if app is not None and app.clock_error == error:
+                app.async_set_clock_error(None)
         if topic not in self._app_topics:
-            return
+            return None
         if payload == self.driver.remove_payload:
             self._shown_topics.discard(topic)
         elif topic not in self._shown_topics:
             # The clock added the app at the end of its loop.
             self._shown_topics.add(topic)
             self._schedule_order_check()
+        return None
+
+    def _size_error(self, topic: str, payload: str) -> str | None:
+        """Return why a message is too large for the clock, if it is.
+
+        AWTRIX NG drops a larger message without a word: its limit counts the
+        topic too.
+        """
+        limit = self.driver.max_payload
+        if limit is None:
+            return None
+        size = len(topic.encode()) + len(payload.encode())
+        if size <= limit:
+            return None
+        return f"message too large: {size} bytes with its topic (limit {limit})"
+
+    @callback
+    def _set_too_large(self, topic: str, error: str) -> None:
+        """Show on the app why its payload was not sent; warn once per error."""
+        app = self._by_topic.get(topic)
+        if self._too_large.get(topic) != error:
+            name = f"app '{app.name}'" if app is not None else topic
+            _LOGGER.warning("Not sending %s to the clock: %s", name, error)
+        self._too_large[topic] = error
+        if app is not None:
+            app.async_set_clock_error(error)
 
     # ------------------------------------------------------------ loop order
 
@@ -555,11 +614,38 @@ class ClockManager:
         if isinstance(payload, bytes):
             payload = payload.decode(errors="replace")
         result = self.driver.parse_result(msg.topic, str(payload))
-        if result is None or (app := self._by_topic.get(result[0])) is None:
+        if result is None:
             return
-        if result[1] is not None and result[1] != app.clock_error:
-            _LOGGER.warning("The clock refused app '%s': %s", app.name, result[1])
-        app.async_set_clock_error(result[1])
+        self._set_clock_error(*result)
+
+    @callback
+    def _set_clock_error(self, topic: str, error: str | None) -> None:
+        """Record the clock's answer on the app publishing to `topic`."""
+        if (app := self._by_topic.get(topic)) is None or topic in self._too_large:
+            # Not ours, or about an older payload: the last one was not sent.
+            return
+        if error is not None and error != app.clock_error:
+            _LOGGER.warning("The clock refused app '%s': %s", app.name, error)
+        app.async_set_clock_error(error)
+
+    @callback
+    def _on_error(self, msg: mqtt.ReceiveMessage) -> None:
+        """A command refused by the clock, from anyone, over MQTT or HTTP.
+
+        Apps and indicators also get the refusal on their `/result` topic: the
+        same text is recorded once and logged once.
+        """
+        payload = msg.payload
+        if isinstance(payload, bytes):
+            payload = payload.decode(errors="replace")
+        event = self.driver.parse_error(str(payload))
+        if event is None:
+            return
+        topic, error = event
+        if topic is not None and topic in self._by_topic:
+            self._set_clock_error(topic, error)
+        else:
+            _LOGGER.debug("The clock %s refused %s: %s", self.prefix, topic, error)
 
     @callback
     def _on_online(self, msg: mqtt.ReceiveMessage) -> None:

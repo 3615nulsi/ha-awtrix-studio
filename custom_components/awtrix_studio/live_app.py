@@ -36,7 +36,7 @@ from .pages import InvalidPagesError, parse_pages, serialize_page
 
 _LOGGER = logging.getLogger(__name__)
 
-type PublishCallback = Callable[[str, str], Awaitable[None]]
+type PublishCallback = Callable[[str, str], Awaitable[object]]
 
 # Placeholder shown when an app has no page and is not hidden.
 BLANK_PAGE = "{}"
