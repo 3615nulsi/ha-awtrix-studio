@@ -11,6 +11,7 @@ Compatible **AWTRIX 3** et **AWTRIX NG** : Ulanzi TC001, Ulanzi TC002 et horloge
 [![Validate](https://github.com/3615nulsi/ha-awtrix-studio/actions/workflows/validate.yml/badge.svg)](https://github.com/3615nulsi/ha-awtrix-studio/actions/workflows/validate.yml)
 [![Tests](https://github.com/3615nulsi/ha-awtrix-studio/actions/workflows/tests.yml/badge.svg)](https://github.com/3615nulsi/ha-awtrix-studio/actions/workflows/tests.yml)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories)
+[![Téléchargements](https://img.shields.io/github/downloads/3615nulsi/ha-awtrix-studio/total.svg?label=t%C3%A9l%C3%A9chargements)](https://github.com/3615nulsi/ha-awtrix-studio/releases)
 
 🇺🇸 [Read in English](README.md)
 
