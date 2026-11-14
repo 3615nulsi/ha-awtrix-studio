@@ -7,7 +7,7 @@ import logging
 
 from homeassistant.components import mqtt
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import (
@@ -71,6 +71,9 @@ async def async_setup_entry(
         hass,
         get_driver(entry.data[CONF_FIRMWARE], entry.data[CONF_PREFIX]),
         hass.data[DATA_ICONS],
+    )
+    manager.files.set_credentials(
+        entry.data.get(CONF_USERNAME), entry.data.get(CONF_PASSWORD)
     )
     for subentry in entry.subentries.values():
         if subentry.subentry_type in MANAGED_SUBENTRY_TYPES:
@@ -140,17 +143,25 @@ async def async_remove_entry(
 async def _async_update_listener(
     hass: HomeAssistant, entry: AwtrixStudioConfigEntry
 ) -> None:
-    """Apply app additions, edits and deletions, or a new loop order."""
+    """Apply app additions, edits and deletions, a new loop order, or a new
+    prefix, firmware or web page password (the clock was reconfigured)."""
     manager = entry.runtime_data
-    if (
-        manager.prefix == entry.data[CONF_PREFIX]
-        and manager.driver.firmware == entry.data[CONF_FIRMWARE]
-        and manager.built_from(entry.subentries.values())
-    ):
-        # Only the clock's options changed: no need to reload the apps.
+    moved = (
+        manager.prefix != entry.data[CONF_PREFIX]
+        or manager.driver.firmware != entry.data[CONF_FIRMWARE]
+    )
+    if not moved and manager.built_from(entry.subentries.values()):
+        # Only the clock's options or credentials changed: no need to reload
+        # the apps.
+        manager.files.set_credentials(
+            entry.data.get(CONF_USERNAME), entry.data.get(CONF_PASSWORD)
+        )
         manager.set_order(entry.options.get(CONF_APP_ORDER))
         return
-    for subentry_id in _removed_app_ids(manager, entry):
+    # With a new prefix or firmware, every app leaves its old topic: the
+    # reload publishes them on the new ones.
+    removed = list(manager.apps) if moved else _removed_app_ids(manager, entry)
+    for subentry_id in removed:
         app = manager.apps[subentry_id]
         # The app's switch may already be gone (and the app stopped) by now,
         # so remove the app from the clock explicitly.
