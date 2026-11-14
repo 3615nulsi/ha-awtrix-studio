@@ -23,6 +23,17 @@ jobs:
         if: failure()
         run: python .github/scripts/annotate_junit.py junit.xml
 
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      # Node's own test runner: no npm dependencies.
+      - name: Run preview renderer tests
+        run: node --test tests/frontend/*.test.mjs
+
   ruff:
     runs-on: ubuntu-latest
     steps:
