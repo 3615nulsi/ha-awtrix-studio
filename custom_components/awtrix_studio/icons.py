@@ -311,6 +311,7 @@ class IconStore:
         payload: str,
         files: ClockFiles | None = None,
         driver: FirmwareDriver | None = None,
+        topic: str = "",
     ) -> str:
         """Replace a `lametric:<id>` icon in a page payload by the icon itself.
 
@@ -320,7 +321,8 @@ class IconStore:
         their number, so that the clock plays them. Otherwise the icon is sent
         inline, in the form the firmware takes: AWTRIX NG plays an inline GIF,
         AWTRIX 3 shows the first image. An inline GIF that would make the
-        payload too large for the clock falls back to the first image.
+        message too large for the clock falls back to the first image: the
+        limit counts the `topic` the payload goes to as well.
         """
         if '"icon"' not in payload:
             return payload
@@ -330,8 +332,9 @@ class IconStore:
             return payload
         if not isinstance(page, dict):
             return payload
+        limit = _limit(driver, topic)
         if "icon" in page:
-            await self._resolve_page_icon(page, files, driver)
+            await self._resolve_page_icon(page, files, driver, limit)
         layout = page.get("layout")
         if (
             driver is not None
@@ -339,7 +342,7 @@ class IconStore:
             and isinstance(layout.get("regions"), list)
             and any(isinstance(r, dict) and "icon" in r for r in layout["regions"])
         ):
-            await self._resolve_layout(page, layout, driver, files)
+            await self._resolve_layout(page, layout, files, limit)
         return _dumps(page)
 
     async def _resolve_page_icon(
@@ -347,6 +350,7 @@ class IconStore:
         page: dict[str, Any],
         files: ClockFiles | None,
         driver: FirmwareDriver | None,
+        limit: int | None,
     ) -> None:
         """Resolve the `icon` key of a page in place."""
         name = page.get("icon")
@@ -370,7 +374,6 @@ class IconStore:
             page["icon"] = icon["jpeg"]
         else:
             page["icon"] = driver.inline_icon(icon["jpeg"], icon.get("gif"))
-            limit = driver.max_payload
             if (
                 "gif" in icon
                 and limit is not None
@@ -382,8 +385,8 @@ class IconStore:
         self,
         page: dict[str, Any],
         layout: dict[str, Any],
-        driver: FirmwareDriver,
         files: ClockFiles | None,
+        limit: int | None,
     ) -> None:
         """Send the gallery icons of a layout inline, doubled in large boxes.
 
@@ -410,7 +413,6 @@ class IconStore:
                 if resolved is not None:
                     regions.append(resolved)
             page["layout"] = {**layout, "regions": regions}
-            limit = driver.max_payload
             if limit is None or len(_dumps(page).encode()) <= limit:
                 return
 
@@ -451,6 +453,13 @@ async def _gallery_id(name: Any, files: ClockFiles | None) -> int | None:
     if files is not None and await files.async_has(name):
         return None
     return int(name)
+
+
+def _limit(driver: FirmwareDriver | None, topic: str) -> int | None:
+    """Return the room left for the payload, the topic counting too."""
+    if driver is None or driver.max_payload is None:
+        return None
+    return driver.max_payload - len(topic.encode())
 
 
 def _dumps(page: dict[str, Any]) -> str:

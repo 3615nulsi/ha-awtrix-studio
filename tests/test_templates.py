@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.template import Template
 import pytest
 
+from custom_components.awtrix_studio.display import apply_display
 from custom_components.awtrix_studio.pages import parse_pages
 from custom_components.awtrix_studio.templates import (
     InvalidSimpleOptionsError,
@@ -323,7 +324,10 @@ async def test_line_separator_and_missing_values(hass: HomeAssistant) -> None:
 
 
 async def test_line_on_awtrix_ng(hass: HomeAssistant) -> None:
-    """AWTRIX NG gets one text, in the first color, and its own keys."""
+    """AWTRIX NG gets its own fragments, each in its color, and its own keys.
+
+    The progress bar takes the first entity's color, as with one entity.
+    """
     hass.states.async_set("sensor.up", "750", {})
     hass.states.async_set("sensor.down", "30", {})
     template = build_app_template(
@@ -331,11 +335,68 @@ async def test_line_on_awtrix_ng(hass: HomeAssistant) -> None:
     )
     assert render(hass, template) == [
         {
-            "text": "UP 750 DN 30",
-            "textColor": "#00FF00",
+            "text": [
+                {"text": "UP 750", "color": "#00FF00"},
+                {"text": " DN 30", "color": "#FFFFFF"},
+            ],
             "progress": 75,
             "progressColor": "#00FF00",
             "progressTrackColor": "#2E2E2E",
+        }
+    ]
+    hass.states.async_set("sensor.down", "80", {})
+    assert render(hass, template)[0]["text"][1] == {
+        "text": " DN 80",
+        "color": "#FF0000",
+    }
+
+
+async def test_line_on_awtrix_ng_gradient_and_json(hass: HomeAssistant) -> None:
+    """A gradient color reaches NG as an RGB list, which NG takes as is.
+
+    Rendered by Jinja alone too, to check the template writes valid JSON.
+    """
+    hass.states.async_set("sensor.up", "1", {})
+    hass.states.async_set("sensor.down", "100", {})
+    segment = {
+        "entity_id": "sensor.down",
+        "color_mode": "gradient",
+        "gradient": "custom",
+        "gradient_stops": [
+            {"value": 0, "color": [0, 0, 255]},
+            {"value": 100, "color": [255, 0, 0]},
+        ],
+    }
+    template = build_app_template(
+        {**LINE, "segments": [segment], "icon": "42"}, "awtrix_ng"
+    )
+    raw = Template(template, hass).async_render(parse_result=False)
+    assert json.loads(raw) == {
+        "text": [
+            {"text": "UP 1", "color": "#00FF00"},
+            {"text": " 100", "color": [255, 0, 0]},
+        ],
+        "icon": "42",
+    }
+
+
+async def test_line_on_awtrix_ng_with_rainbow(hass: HomeAssistant) -> None:
+    """A rainbow text style still wins over the fragments' colors on NG."""
+    hass.states.async_set("sensor.up", "1", {})
+    hass.states.async_set("sensor.down", "2", {})
+    pages = apply_display(
+        render(hass, build_app_template(LINE, "awtrix_ng")),
+        {"rainbow": True},
+        "awtrix_ng",
+    )
+    assert pages == [
+        {
+            "palette": "Rainbow",
+            "text": [
+                {"text": "UP 1", "color": "#00FF00"},
+                {"text": " DN 2", "color": "#FFFFFF"},
+            ],
+            "textColor": "palette",
         }
     ]
 

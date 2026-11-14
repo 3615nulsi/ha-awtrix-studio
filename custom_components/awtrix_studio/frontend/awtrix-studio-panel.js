@@ -2041,7 +2041,7 @@ class AwtrixStudioPanel extends HTMLElement {
     let shown = false;
     entries.forEach(({ segment, field, key }) => {
       const target = segment === null || segment === f.segment ? this._errors[field] : null;
-      const text = this.t(`errors.${key}`) + (detail && (key === "invalid_template" || key === "invalid_pages") ? ` ${detail}` : "");
+      const text = this.t(`errors.${key}`) + (detail && (key === "invalid_template" || key === "invalid_pages" || key === "payload_too_large") ? ` ${detail}` : "");
       if (target) {
         target.textContent = text;
         shown = true;

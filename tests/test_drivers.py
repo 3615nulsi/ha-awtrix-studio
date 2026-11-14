@@ -73,6 +73,54 @@ def test_parse_address() -> None:
     assert driver.parse_version('{"version": "0.98"}') is None
 
 
+ACCEPTED = (
+    "10.0.0.1",
+    "10.255.255.254",
+    "172.16.0.1",
+    "172.31.255.254",
+    "192.168.0.1",
+    "192.168.255.254",
+)
+REFUSED = (
+    "8.8.8.8",
+    "127.0.0.1",
+    "0.0.0.0",
+    "169.254.169.254",
+    "169.254.1.1",
+    "172.15.255.255",
+    "172.32.0.1",
+    "100.64.0.1",
+    "192.0.2.1",
+    "198.18.0.1",
+    "198.51.100.7",
+    "203.0.113.9",
+    "240.0.0.1",
+    "255.255.255.255",
+    "224.0.0.1",
+    "::1",
+    "fd00::1",
+    "fe80::1",
+    "::ffff:192.168.1.2",
+    " 192.168.1.2",
+    "192.168.1.2:80",
+    "",
+)
+
+
+@pytest.mark.parametrize("driver", [Awtrix3Driver("a"), AwtrixNGDriver("n")])
+def test_address_is_rfc1918_only(driver: Awtrix3Driver | AwtrixNGDriver) -> None:
+    """Home Assistant only sends requests to a home network address.
+
+    Link-local (cloud metadata), reserved, documentation and benchmark ranges
+    count as private for Python, not here.
+    """
+    key = "ipAddress" if isinstance(driver, AwtrixNGDriver) else "ip_address"
+    for address in ACCEPTED:
+        assert driver.parse_address(json.dumps({key: address})) == address
+    for address in REFUSED:
+        assert driver.parse_address(json.dumps({key: address})) is None, address
+
+
 def test_file_lists() -> None:
     """Each firmware lists a folder in its own JSON."""
     assert Awtrix3Driver("a").parse_files(
@@ -255,6 +303,41 @@ def test_ng_capabilities_and_results() -> None:
     )
     assert driver.parse_result(topic, "nope") is None
     assert driver.parse_result("awtrixNG/cmd/apps/pushed/tram", "{}") is None
+
+
+def test_ng_error_events() -> None:
+    """Refused commands are read from `event/error`, defensively."""
+    driver = AwtrixNGDriver("awtrixNG")
+    assert driver.error_topic == "awtrixNG/event/error"
+    assert Awtrix3Driver("awtrix").error_topic is None
+    assert Awtrix3Driver("awtrix").parse_error("{}") is None
+
+    event = {
+        "source": "mqtt",
+        "request": "awtrixNG/cmd/apps/pushed/tram",
+        "error": {"code": "validationFailed", "message": "bad", "field": "icon"},
+    }
+    assert driver.parse_error(json.dumps(event)) == (
+        "awtrixNG/cmd/apps/pushed/tram",
+        "icon: bad",
+    )
+    # Over HTTP, `request` is a method and a path: no topic.
+    http = {**event, "source": "http", "request": "POST /api/v1/apps/pushed/x"}
+    assert driver.parse_error(json.dumps(http)) == (None, "icon: bad")
+    # A topic of another clock, or too long, is not attributed.
+    other = {**event, "request": "other/cmd/apps/pushed/tram"}
+    assert driver.parse_error(json.dumps(other)) == (None, "icon: bad")
+    long = {**event, "request": "awtrixNG/" + "x" * 300}
+    assert driver.parse_error(json.dumps(long)) == (None, "icon: bad")
+    # Odd shapes stay readable, long texts are cut.
+    assert driver.parse_error(json.dumps({**event, "request": 3, "error": "x"})) == (
+        None,
+        "refused",
+    )
+    huge = {**event, "error": {"message": "m" * 500}}
+    assert driver.parse_error(json.dumps(huge)) == (event["request"], "m" * 120)
+    for payload in ("nope", "[]", '{"source":"mqtt"}', json.dumps(event) + " " * 5000):
+        assert driver.parse_error(payload) is None
 
 
 def test_ng_display_size_and_enlarge() -> None:

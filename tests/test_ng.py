@@ -331,3 +331,164 @@ async def test_simple_app_speaks_ng(
     snapshot = (await client.receive_json())["event"]
     assert snapshot["items"][0]["clock_error"] is None
     assert snapshot["display"]["scale"] == 1
+
+
+def sized_entry() -> MockConfigEntry:
+    """An NG clock with one app whose text is as long as `input_number.n`."""
+    return MockConfigEntry(
+        domain=DOMAIN,
+        title=PREFIX,
+        unique_id=PREFIX,
+        data={"firmware": "awtrix_ng", "prefix": PREFIX},
+        subentries_data=[
+            ConfigSubentryDataWithId(
+                data={
+                    "mode": "template",
+                    "app_name": "demo",
+                    "template": "{{ {'text': 'x' * (states('input_number.n')"
+                    " | int(0))} | tojson }}",
+                    "page_interval": 10,
+                    "cycle_only_on_screen": True,
+                    "hide_when_empty": True,
+                    "lifetime": 0,
+                },
+                subentry_id="app_demo",
+                subentry_type="app",
+                title="demo",
+                unique_id="demo",
+            )
+        ],
+    )
+
+
+async def set_length(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, length: int
+) -> None:
+    """Change the app's text length and let it publish."""
+    hass.states.async_set("input_number.n", str(length))
+    await hass.async_block_till_done()
+    await tick(hass, freezer, 2)
+
+
+# The largest text that fits: 8192 bytes with the topic and `{"text":""}`.
+FITS = 8192 - len(APP_TOPIC) - len('{"text":""}')
+
+
+async def test_oversized_payload_is_not_sent(
+    hass: HomeAssistant,
+    mqtt_mock: MqttMockHAClient,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """NG drops a message over 8192 bytes, topic included: it is not sent, and
+    the panel says why until a payload fits again."""
+    hass.states.async_set("input_number.n", str(FITS))
+    entry = sized_entry()
+    await setup(hass, entry)
+    app = entry.runtime_data.apps["app_demo"]
+    assert len(published(mqtt_mock, APP_TOPIC)[-1]) == FITS + len('{"text":""}')
+    assert app.clock_error is None
+    count = len(published(mqtt_mock, APP_TOPIC))
+
+    await set_length(hass, freezer, FITS + 1)
+    assert len(published(mqtt_mock, APP_TOPIC)) == count
+    assert app.clock_error == (
+        "message too large: 8193 bytes with its topic (limit 8192)"
+    )
+    assert caplog.text.count("Not sending app 'demo'") == 1
+
+    # The clock's answer to an older payload does not hide the problem.
+    async_fire_mqtt_message(hass, f"{APP_TOPIC}/result", '{"ok":true}')
+    await hass.async_block_till_done()
+    assert app.clock_error is not None
+    # Sent again unchanged: still one warning.
+    await entry.runtime_data.async_republish_all()
+    assert caplog.text.count("Not sending app 'demo'") == 1
+    assert len(published(mqtt_mock, APP_TOPIC)) == count
+
+    # Back under the limit: sent, the error goes, the clock's answers count.
+    await set_length(hass, freezer, 3)
+    assert published(mqtt_mock, APP_TOPIC)[-1] == '{"text":"xxx"}'
+    assert app.clock_error is None
+    async_fire_mqtt_message(
+        hass,
+        f"{APP_TOPIC}/result",
+        json.dumps({"ok": False, "error": {"message": "nope"}}),
+    )
+    await hass.async_block_till_done()
+    assert app.clock_error == "nope"
+
+
+async def test_oversized_test_payload(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    mqtt_mock: MqttMockHAClient,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A test too large for the clock is not sent and says so; the app keeps
+    its content and its status."""
+    hass.states.async_set("input_number.n", "3")
+    entry = sized_entry()
+    await setup(hass, entry)
+    app = entry.runtime_data.apps["app_demo"]
+    count = len(published(mqtt_mock, APP_TOPIC))
+
+    client = await hass_ws_client(hass)
+    for subentry in ({"subentry_id": "app_demo"}, {}):
+        await client.send_json_auto_id(
+            {
+                "type": "awtrix_studio/test",
+                "entry_id": entry.entry_id,
+                "kind": "app",
+                **subentry,
+                "data": {
+                    "mode": "template",
+                    "app_name": "demo" if subentry else "other",
+                    "template": json.dumps({"text": "y" * 9000}),
+                },
+            }
+        )
+        result = (await client.receive_json())["result"]
+        assert result["errors"] == {"base": "payload_too_large"}
+        assert "limit 8192" in result["detail"]
+    assert len(published(mqtt_mock, APP_TOPIC)) == count
+    assert published(mqtt_mock, f"{PREFIX}/cmd/apps/pushed/other") == []
+    assert app.clock_error is None
+    # Nothing to restore later.
+    await tick(hass, freezer, 16)
+    assert len(published(mqtt_mock, APP_TOPIC)) == count
+
+
+async def test_error_events(
+    hass: HomeAssistant,
+    mqtt_mock: MqttMockHAClient,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`event/error` names the app it refused; others are only logged."""
+    await setup(hass, ng_entry())
+    app = next(iter(hass.config_entries.async_entries(DOMAIN))).runtime_data.apps[
+        "app_demo"
+    ]
+    error = {"code": "validationFailed", "message": "bad", "field": "icon"}
+    event = {"source": "mqtt", "request": APP_TOPIC, "error": error}
+    async_fire_mqtt_message(hass, f"{PREFIX}/event/error", json.dumps(event))
+    await hass.async_block_till_done()
+    assert app.clock_error == "icon: bad"
+    # The same refusal on `/result` is not reported twice.
+    async_fire_mqtt_message(
+        hass, f"{APP_TOPIC}/result", json.dumps({"ok": False, "error": error})
+    )
+    await hass.async_block_till_done()
+    assert caplog.text.count("The clock refused app 'demo'") == 1
+
+    async_fire_mqtt_message(
+        hass,
+        f"{PREFIX}/event/error",
+        json.dumps({**event, "request": f"{PREFIX}/cmd/notify"}),
+    )
+    async_fire_mqtt_message(hass, f"{PREFIX}/event/error", "not json")
+    await hass.async_block_till_done()
+    assert app.clock_error == "icon: bad"
+    async_fire_mqtt_message(hass, f"{APP_TOPIC}/result", '{"ok":true}')
+    await hass.async_block_till_done()
+    assert app.clock_error is None

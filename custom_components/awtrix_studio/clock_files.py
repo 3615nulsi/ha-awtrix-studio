@@ -6,10 +6,10 @@ folder, once, and the app then names the icon by its number. AWTRIX 3 takes
 it through its web file manager (the one the clock's web page uses), AWTRIX NG
 through its files API; the driver knows which.
 
-The clock's address comes from its MQTT stats and is limited to private IPv4
-addresses. Files are only ever added, never deleted. When the clock cannot be
-reached (or its web page is password protected), the caller falls back to the
-icon's first image sent inline.
+The clock's address comes from its MQTT stats and is limited to the RFC 1918
+private IPv4 ranges (10/8, 172.16/12, 192.168/16). Files are only ever added,
+never deleted. When the clock cannot be reached (or its web page is password
+protected), the caller falls back to the icon's first image sent inline.
 
 The app loop order is also read and changed there: AWTRIX has no MQTT command
 to reorder apps.

@@ -80,7 +80,7 @@ Choose an entity, add a label, an icon and colors, and you're done. The preview 
 | **Custom unit** | Shown instead of the entity's unit, for example `GB` after a bare `750`. Empty: the entity's own. |
 | **Hide when the value is 0** | Handy for solar production at night. |
 | **Progress bar** | A bar at the bottom of the screen, from the app's entity or another one, empty and full at the values you choose. It can follow the text color. |
-| **Add an entity** | Shows several entities on the same line, like `UP 750 DN 30`. Each one has its own label, decimals, unit and color (fixed, steps or gradient); a tab per entity switches between them, and a **separator** goes between two. An entity without a value leaves the line, and the app leaves the rotation when none is left. On AWTRIX NG the whole line takes the color of the first entity. |
+| **Add an entity** | Shows several entities on the same line, like `UP 750 DN 30`. Each one has its own label, decimals, unit and color (fixed, steps or gradient); a tab per entity switches between them, and a **separator** goes between two. An entity without a value leaves the line, and the app leaves the rotation when none is left. |
 | **Layout** (TC002 on AWTRIX NG) | Draws the app on all 52 × 16 LEDs, one LED per pixel, instead of one line at double size: **Value**, **Title and value** (the label in small letters above), **Value and progress bar**, or **Two entities, one per line**. The icon is optional; a gallery icon is drawn at 16 × 16 there. You pick the fonts among those that stay legible: an 8-pixel font for the value (bold by default, light, or wide for a short value), and a 6-pixel font for the title or the lines (light by default, or bold). |
 | **Color according to the value** | **Fixed**, **steps** (up to two thresholds, each with its color), or a **gradient**: pick a ready-made one (*the higher, the worse*, *the lower, the worse*, *best in the middle*, *cold → hot*) and set its range, or make your own with 2 to 5 points. For temperatures, CO2, humidity or batteries, a sensible range is suggested. |
 
@@ -251,7 +251,7 @@ Apps are sent again automatically, as well as when MQTT reconnects.
 - Data changes are throttled to at most one message per second per app.
 - The clock announces the app on screen (`<prefix>/stats/currentApp` on AWTRIX 3, `<prefix>/state/apps/active` on AWTRIX NG); by default, pages only alternate while that's the app being shown.
 - A reboot is spotted from the clock's uptime (`<prefix>/stats` on AWTRIX 3), or from the clock coming back `online` (`<prefix>/availability` on AWTRIX NG); apps are then sent again.
-- On AWTRIX NG, the clock answers every app it receives (`…/result`): a refusal is shown in the panel.
+- On AWTRIX NG, the clock answers every app it receives (`…/result`): a refusal is shown in the panel. NG silently drops any message over 8192 bytes (topic included): such a payload is not sent, and the panel says so.
 - Messages go straight to the MQTT client: no service calls, no events.
 - Each app and indicator has a **switch** entity: turning it off removes the app from the clock (or turns the indicator off) and keeps its settings. Its state survives restarts.
 - The `awtrix_studio.refresh` action sends every enabled app and indicator again.
