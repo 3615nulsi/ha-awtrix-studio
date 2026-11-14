@@ -17,8 +17,8 @@ from homeassistant.config_entries import (
     ConfigSubentryFlow,
     SubentryFlowResult,
 )
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import callback
-from homeassistant.exceptions import TemplateError
 from homeassistant.helpers.selector import (
     BooleanSelector,
     ColorRGBSelector,
@@ -31,9 +31,12 @@ from homeassistant.helpers.selector import (
     SelectSelectorMode,
     TemplateSelector,
     TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
 )
-from homeassistant.helpers.template import Template
+from homeassistant.helpers.service_info.mqtt import MqttServiceInfo
 
+from .clock_files import MAX_CREDENTIAL_LENGTH
 from .const import (
     APP_COLOR_MODES,
     APP_NAME_PATTERN,
@@ -114,17 +117,22 @@ from .detect import async_detect_firmware
 from .display import CONF_DISPLAY
 from .drivers import DRIVERS
 from .gradients import GRADIENTS, InvalidGradientError, resolve_stops, stops_to_data
-from .pages import InvalidPagesError, parse_pages
 from .templates import (
     app_color_mode,
     build_app_template,
     build_indicator_template,
     indicator_color_mode,
 )
+from .validation import check_template
 
 MQTT_DOMAIN = "mqtt"
 # Firmware choice that asks the clock which firmware it runs.
 FIRMWARE_AUTO = "auto"
+# AWTRIX NG publishes its prefix, retained, on this topic below the prefix.
+# The manifest subscribes to `+/state/prefix`: single-level prefixes only.
+DISCOVERY_SUFFIX = "/state/prefix"
+# Longest prefix accepted from a discovery message.
+MAX_DISCOVERED_PREFIX = 64
 
 STARTER_APP_TEMPLATE = """{#- Render a JSON object (one page) or a list of objects
     (pages that alternate). Any key of the AWTRIX custom app API works. -#}
@@ -179,6 +187,27 @@ def _normalize_prefix(prefix: str) -> str | None:
     return prefix
 
 
+def _check_credentials(username: str, password: str, errors: dict[str, str]) -> None:
+    """Check the clock's web page credentials (HTTP Basic auth)."""
+    # Basic auth cannot carry a `:` in the user name.
+    if len(username) > MAX_CREDENTIAL_LENGTH or ":" in username:
+        errors[CONF_USERNAME] = "invalid_username"
+    if len(password) > MAX_CREDENTIAL_LENGTH:
+        errors[CONF_PASSWORD] = "invalid_password"
+    if password and not username:
+        errors[CONF_USERNAME] = "username_required"
+
+
+def _firmware_selector() -> SelectSelector:
+    return SelectSelector(
+        SelectSelectorConfig(
+            options=[FIRMWARE_AUTO, *DRIVERS],
+            translation_key=CONF_FIRMWARE,
+            mode=SelectSelectorMode.DROPDOWN,
+        )
+    )
+
+
 def _seconds(minimum: float, maximum: float, step: float) -> NumberSelector:
     return NumberSelector(
         NumberSelectorConfig(
@@ -218,6 +247,8 @@ class AwtrixStudioConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
     MINOR_VERSION = 1
 
+    _discovered_prefix: str | None = None
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -246,19 +277,138 @@ class AwtrixStudioConfigFlow(ConfigFlow, domain=DOMAIN):
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_FIRMWARE, default=FIRMWARE_AUTO): SelectSelector(
-                    SelectSelectorConfig(
-                        options=[FIRMWARE_AUTO, *DRIVERS],
-                        translation_key=CONF_FIRMWARE,
-                        mode=SelectSelectorMode.DROPDOWN,
-                    )
-                ),
+                vol.Required(
+                    CONF_FIRMWARE, default=FIRMWARE_AUTO
+                ): _firmware_selector(),
                 vol.Required(CONF_PREFIX, default=DEFAULT_PREFIX): TextSelector(),
             }
         )
         return self.async_show_form(
             step_id="user",
             data_schema=self.add_suggested_values_to_schema(schema, user_input),
+            errors=errors,
+        )
+
+    async def async_step_mqtt(
+        self, discovery_info: MqttServiceInfo
+    ) -> ConfigFlowResult:
+        """Offer an AWTRIX NG clock seen on `<prefix>/state/prefix`.
+
+        The message is retained by the clock and carries its prefix: anything
+        else on a topic of that shape is not an AWTRIX NG clock.
+        """
+        topic = discovery_info.topic
+        payload = discovery_info.payload
+        if isinstance(payload, bytes):
+            payload = payload.decode(errors="replace")
+        prefix = topic.removesuffix(DISCOVERY_SUFFIX)
+        if (
+            not topic.endswith(DISCOVERY_SUFFIX)
+            or len(prefix) > MAX_DISCOVERED_PREFIX
+            or _normalize_prefix(prefix) != prefix
+            or str(payload).strip() != prefix
+        ):
+            return self.async_abort(reason="not_awtrix_ng")
+        await self.async_set_unique_id(prefix)
+        self._abort_if_unique_id_configured()
+        self._discovered_prefix = prefix
+        self.context["title_placeholders"] = {"name": prefix}
+        return await self.async_step_discovery_confirm()
+
+    async def async_step_discovery_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Ask before adding a discovered clock."""
+        prefix = self._discovered_prefix
+        assert prefix is not None
+        if user_input is not None:
+            return self.async_create_entry(
+                title=prefix,
+                data={CONF_FIRMWARE: FIRMWARE_AWTRIX_NG, CONF_PREFIX: prefix},
+            )
+        self._set_confirm_only()
+        return self.async_show_form(
+            step_id="discovery_confirm",
+            description_placeholders={"prefix": prefix},
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Change the prefix, the firmware or the web page credentials.
+
+        The update listener then moves the apps: they leave the old topics and
+        are published on the new ones.
+        """
+        entry = self._get_reconfigure_entry()
+        current = dict(entry.data)
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            prefix = _normalize_prefix(user_input[CONF_PREFIX])
+            firmware = user_input[CONF_FIRMWARE]
+            username = str(user_input.get(CONF_USERNAME) or "").strip()
+            password = str(user_input.get(CONF_PASSWORD) or "")
+            if not password and username and username == current.get(CONF_USERNAME):
+                # The password is never shown again: empty keeps it.
+                password = current.get(CONF_PASSWORD, "")
+            _check_credentials(username, password, errors)
+            if prefix is None:
+                errors[CONF_PREFIX] = "invalid_prefix"
+            elif any(
+                other.unique_id == prefix and other.entry_id != entry.entry_id
+                for other in self._async_current_entries(include_ignore=False)
+            ):
+                errors[CONF_PREFIX] = "prefix_in_use"
+            elif not errors and firmware == FIRMWARE_AUTO:
+                firmware = await async_detect_firmware(self.hass, prefix)
+                if firmware is None:
+                    errors[CONF_FIRMWARE] = "not_detected"
+            if not errors:
+                assert prefix is not None
+                data = {
+                    key: value
+                    for key, value in current.items()
+                    if key not in (CONF_USERNAME, CONF_PASSWORD)
+                }
+                data[CONF_FIRMWARE] = firmware
+                data[CONF_PREFIX] = prefix
+                if username:
+                    data[CONF_USERNAME] = username
+                    data[CONF_PASSWORD] = password
+                # A title the user chose is kept; the default one follows.
+                title = prefix if entry.title == current[CONF_PREFIX] else entry.title
+                return self.async_update_and_abort(
+                    entry, unique_id=prefix, title=title, data=data
+                )
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_FIRMWARE): _firmware_selector(),
+                vol.Required(CONF_PREFIX): TextSelector(),
+                vol.Optional(CONF_USERNAME): TextSelector(
+                    TextSelectorConfig(autocomplete="username")
+                ),
+                vol.Optional(CONF_PASSWORD): TextSelector(
+                    TextSelectorConfig(
+                        type=TextSelectorType.PASSWORD,
+                        autocomplete="current-password",
+                    )
+                ),
+            }
+        )
+        suggested = user_input
+        if suggested is None:
+            suggested = {
+                CONF_FIRMWARE: current[CONF_FIRMWARE],
+                CONF_PREFIX: current[CONF_PREFIX],
+                CONF_USERNAME: current.get(CONF_USERNAME, ""),
+            }
+        else:
+            # Never send a password back to the browser.
+            suggested = {k: v for k, v in suggested.items() if k != CONF_PASSWORD}
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self.add_suggested_values_to_schema(schema, suggested),
             errors=errors,
         )
 
@@ -338,17 +488,8 @@ class _LiveSubentryFlow(ConfigSubentryFlow):
 
     def _validate_template(self, template_str: str) -> tuple[str, str] | None:
         """Render the template once; return (error key, detail) if it fails."""
-        template = Template(template_str, self.hass)
-        try:
-            template.ensure_valid()
-            result = template.async_render(parse_result=True)
-        except TemplateError as err:
-            return "invalid_template", str(err)
-        try:
-            parse_pages(result)
-        except InvalidPagesError as err:
-            return "invalid_pages", str(err)
-        return None
+        # The same check as the panel's.
+        return check_template(self.hass, template_str)
 
     def _check_gradient(self, data: dict[str, Any], errors: dict[str, str]) -> None:
         """Check the gradient settings and keep only what describes it."""

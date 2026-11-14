@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import base64
+from datetime import timedelta
 from io import BytesIO
 import json
 from typing import Any
 
+import aiohttp
+from freezegun.api import FrozenDateTimeFactory
 from homeassistant.config_entries import ConfigSubentryDataWithId
 from homeassistant.core import HomeAssistant
 from PIL import Image
@@ -13,6 +17,7 @@ import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_fire_mqtt_message,
+    async_fire_time_changed,
 )
 from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
 from pytest_homeassistant_custom_component.typing import (
@@ -20,7 +25,9 @@ from pytest_homeassistant_custom_component.typing import (
     WebSocketGenerator,
 )
 
+from custom_components.awtrix_studio.clock_files import LISTING_MAX_AGE, ClockFiles
 from custom_components.awtrix_studio.const import DOMAIN
+from custom_components.awtrix_studio.drivers import AwtrixNGDriver
 from custom_components.awtrix_studio.icons import ICON_URL, convert
 
 PREFIX = "awtrixNG"
@@ -98,6 +105,15 @@ async def setup_clock(hass: HomeAssistant, icon: str | None = None) -> MockConfi
     return entry
 
 
+async def tick(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, seconds: float = 1.1
+) -> None:
+    """Advance time (past the republish delay) and run what became due."""
+    freezer.tick(timedelta(seconds=seconds))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+
 def last_page(mqtt_mock: MqttMockHAClient) -> dict[str, Any]:
     payloads = [
         c.args[1] for c in mqtt_mock.async_publish.call_args_list if c.args[0] == TOPIC
@@ -162,6 +178,7 @@ async def test_animated_icons_are_stored_on_the_clock(
     hass: HomeAssistant,
     mqtt_mock: MqttMockHAClient,
     aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
 ) -> None:
     """An animated gallery icon is uploaded to the NG clock once, then named."""
     animated = gif(frames=3)
@@ -174,7 +191,7 @@ async def test_animated_icons_are_stored_on_the_clock(
     assert last_page(mqtt_mock)["icon"].startswith("data:image/gif;base64,")
 
     async_fire_mqtt_message(hass, f"{PREFIX}/state/device", state())
-    await hass.async_block_till_done()
+    await tick(hass, freezer)
     assert last_page(mqtt_mock)["icon"] == "57980"
     uploads = [c for c in aioclient_mock.mock_calls if c[0].upper() == "POST"]
     assert len(uploads) == 1
@@ -184,6 +201,7 @@ async def test_old_ng_gets_a_bare_jpeg(
     hass: HomeAssistant,
     mqtt_mock: MqttMockHAClient,
     aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
 ) -> None:
     """Before 1.2.0, AWTRIX NG reads an inline icon as a bare Base64 JPEG."""
     still = gif()
@@ -195,10 +213,126 @@ async def test_old_ng_gets_a_bare_jpeg(
     assert last_page(mqtt_mock)["icon"] == f"data:image/jpeg;base64,{jpeg}"
 
     async_fire_mqtt_message(hass, f"{PREFIX}/state/device", state("1.1.2"))
-    await hass.async_block_till_done()
+    await tick(hass, freezer)
     assert last_page(mqtt_mock)["icon"] == jpeg
 
     # After an update, the clock's version changes and the form follows.
     async_fire_mqtt_message(hass, f"{PREFIX}/state/device", state("1.2.2"))
-    await hass.async_block_till_done()
+    await tick(hass, freezer)
     assert last_page(mqtt_mock)["icon"] == f"data:image/jpeg;base64,{jpeg}"
+
+
+def listings(aioclient_mock: AiohttpClientMocker) -> int:
+    """How many times the clock's /ICONS folder was listed."""
+    return sum(
+        1
+        for c in aioclient_mock.mock_calls
+        if c[0].upper() == "GET" and "/api/v1/files" in str(c[1])
+    )
+
+
+async def test_listing_is_read_again_when_old(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """An icon deleted on the clock is no longer taken as present."""
+    files = ClockFiles(hass, AwtrixNGDriver(PREFIX))
+    files.set_address("192.168.1.86")
+    aioclient_mock.get(f"{CLOCK}/api/v1/files", json=LISTING)
+    assert await files.async_has("co2") is True
+    assert await files.async_has("co2") is True
+    assert listings(aioclient_mock) == 1
+
+    # The user deletes co2.gif on the clock.
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(f"{CLOCK}/api/v1/files", json={"files": []})
+    assert await files.async_has("co2") is True
+    files._listed_at -= LISTING_MAX_AGE + 1
+    assert await files.async_has("co2") is False
+    assert listings(aioclient_mock) == 1
+
+
+async def test_restart_reads_the_files_again(
+    hass: HomeAssistant,
+    mqtt_mock: MqttMockHAClient,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A clock that restarted (maybe re-flashed) has its files listed again."""
+    aioclient_mock.get(ICON_URL.format(id=57980), content=gif(frames=3))
+    # The listing never shows the uploaded icon: as if the clock lost it.
+    aioclient_mock.get(f"{CLOCK}/api/v1/files", json=LISTING)
+    aioclient_mock.post(f"{CLOCK}/api/v1/files", json={"ok": True})
+    await setup_clock(hass, "lametric:57980")
+    async_fire_mqtt_message(hass, f"{PREFIX}/availability", "online")
+    async_fire_mqtt_message(hass, f"{PREFIX}/state/device", state())
+    await tick(hass, freezer)
+    assert listings(aioclient_mock) == 1
+    uploads = [c for c in aioclient_mock.mock_calls if c[0].upper() == "POST"]
+    assert len(uploads) == 1
+
+    async_fire_mqtt_message(hass, f"{PREFIX}/availability", "offline")
+    async_fire_mqtt_message(hass, f"{PREFIX}/availability", "online")
+    await tick(hass, freezer)
+    assert listings(aioclient_mock) == 2
+    uploads = [c for c in aioclient_mock.mock_calls if c[0].upper() == "POST"]
+    assert len(uploads) == 2
+    assert last_page(mqtt_mock)["icon"] == "57980"
+
+
+async def test_credentials_are_sent(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Every request carries the web page's user name and password, if set."""
+    files = ClockFiles(hass, AwtrixNGDriver(PREFIX))
+    files.set_address("192.168.1.86")
+    files.set_credentials("admin", "pässword")
+    aioclient_mock.get(f"{CLOCK}/api/v1/files", json=LISTING)
+    aioclient_mock.post(f"{CLOCK}/api/v1/files", json={"ok": True})
+    aioclient_mock.get(f"{CLOCK}/api/v1/apps", json=[])
+    aioclient_mock.post(f"{CLOCK}/api/v1/apps/order", json={"ok": True})
+    aioclient_mock.get(f"{CLOCK}/ICONS/co2.gif", content=gif())
+
+    assert await files.async_ensure("57980", gif(frames=2), "gif")
+    await files.async_get_text("/api/v1/apps")
+    await files.async_post_json("/api/v1/apps/order", ["Time"])
+    assert await files.async_read_icon("co2") is not None
+
+    expected = "Basic " + base64.b64encode("admin:pässword".encode()).decode()
+    assert len(aioclient_mock.mock_calls) == 6
+    for call in aioclient_mock.mock_calls:
+        assert call[3]["Authorization"] == expected
+
+    # Without a user name, no header at all.
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(f"{CLOCK}/api/v1/apps", json=[])
+    files.set_credentials(None, None)
+    await files.async_get_text("/api/v1/apps")
+    assert "Authorization" not in aioclient_mock.mock_calls[0][3]
+
+
+@pytest.mark.parametrize(
+    ("username", "wording"),
+    [(None, "asks for a password"), ("admin", "refused the user name")],
+)
+async def test_password_warning(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    caplog: pytest.LogCaptureFixture,
+    username: str | None,
+    wording: str,
+) -> None:
+    """A 401 says, once, that credentials are set by reconfiguring the clock."""
+    files = ClockFiles(hass, AwtrixNGDriver(PREFIX))
+    files.set_address("192.168.1.86")
+    files.set_credentials(username, "wrong")
+    aioclient_mock.get(f"{CLOCK}/api/v1/files", status=401)
+    aioclient_mock.get(f"{CLOCK}/api/v1/apps", status=401)
+
+    assert not await files.async_ensure("7", gif(frames=2), "gif")
+    with pytest.raises(aiohttp.ClientResponseError):
+        await files.async_get_text("/api/v1/apps")
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert wording in warnings[0].getMessage()
+    assert "reconfiguring the clock" in warnings[0].getMessage()
+    assert "wrong" not in caplog.text

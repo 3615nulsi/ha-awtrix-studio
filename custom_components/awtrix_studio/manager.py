@@ -57,6 +57,10 @@ ORDER_CHECK_DELAY = 2.0
 # How often the loop order is checked while one is set, for apps pushed by
 # something else.
 ORDER_CHECK_INTERVAL = timedelta(seconds=60)
+# How long republish requests are gathered before every app is sent again. At
+# startup the broker connection, the clock's address and its version arrive
+# within a second: one republish covers them all.
+REPUBLISH_DELAY = 1.0
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -139,6 +143,8 @@ class ClockManager:
         self._order_timer: CALLBACK_TYPE | None = None
         self._order_lock = asyncio.Lock()
         self._order_pending = False
+        self._republish_timer: CALLBACK_TYPE | None = None
+        self._stopped = False
         self._online: bool | None = None
         self._capabilities: dict[str, list[str]] | None = None
         self._display_size: tuple[int, int] | None = None
@@ -175,6 +181,11 @@ class ClockManager:
     def prefix(self) -> str:
         """Return the clock's MQTT prefix."""
         return self.driver.prefix
+
+    @property
+    def online(self) -> bool | None:
+        """Return whether the clock says it is online (None: it does not say)."""
+        return self._online
 
     @property
     def capabilities(self) -> dict[str, list[str]] | None:
@@ -277,6 +288,7 @@ class ClockManager:
 
     async def async_stop(self) -> None:
         """Stop all apps without touching the clock."""
+        self._stopped = True
         while self._unsubscribers:
             self._unsubscribers.pop()()
         self._screen_listeners.clear()
@@ -287,6 +299,9 @@ class ClockManager:
         if self._order_timer is not None:
             self._order_timer()
             self._order_timer = None
+        if self._republish_timer is not None:
+            self._republish_timer()
+            self._republish_timer = None
         for app in self.apps.values():
             await app.async_shutdown()
 
@@ -380,6 +395,24 @@ class ClockManager:
         self._shown_topics.clear()
         for app in self.apps.values():
             await app.async_republish()
+
+    @callback
+    def _schedule_republish(self) -> None:
+        """Republish every app shortly, once for all requests until then.
+
+        A request made while a republish is running schedules another one, so
+        what changed during it is still sent.
+        """
+        if self._stopped or self._republish_timer is not None:
+            return
+        self._republish_timer = async_call_later(
+            self.hass, REPUBLISH_DELAY, self._async_republish_timer
+        )
+
+    async def _async_republish_timer(self, _now: datetime) -> None:
+        self._republish_timer = None
+        if not self._stopped:
+            await self.async_republish_all()
 
     async def _publish(
         self, topic: str, payload: str, *, test: bool = False
@@ -567,9 +600,7 @@ class ClockManager:
             self.driver.version = version
             republish = True
         if republish:
-            self.hass.async_create_task(
-                self.async_republish_all(), f"awtrix_studio republish {self.prefix}"
-            )
+            self._schedule_republish()
         uptime = self.driver.parse_uptime(payload)
         if uptime is None:
             return
@@ -577,9 +608,9 @@ class ClockManager:
         self._last_uptime = uptime
         if rebooted:
             _LOGGER.debug("Clock %s restarted, publishing apps again", self.prefix)
-            self.hass.async_create_task(
-                self.async_republish_all(), f"awtrix_studio republish {self.prefix}"
-            )
+            # Its icon files may have changed too (e.g. after an update).
+            self.files.forget_listing()
+            self._schedule_republish()
 
     @callback
     def _on_capabilities(self, msg: mqtt.ReceiveMessage) -> None:
@@ -660,13 +691,10 @@ class ClockManager:
         if came_back:
             # The clock restarted (or lost its connection) and dropped its apps.
             _LOGGER.debug("Clock %s is back online, publishing apps again", self.prefix)
-            self.hass.async_create_task(
-                self.async_republish_all(), f"awtrix_studio republish {self.prefix}"
-            )
+            self.files.forget_listing()
+            self._schedule_republish()
 
     @callback
     def _on_connection(self, connected: bool) -> None:
         if connected:
-            self.hass.async_create_task(
-                self.async_republish_all(), f"awtrix_studio republish {self.prefix}"
-            )
+            self._schedule_republish()

@@ -329,7 +329,10 @@ async def test_pages_follow_current_app(
 
 
 async def test_clock_reboot_republishes(
-    hass: HomeAssistant, mqtt_mock: MqttMockHAClient, mock_entry: MockConfigEntry
+    hass: HomeAssistant,
+    mqtt_mock: MqttMockHAClient,
+    mock_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
 ) -> None:
     """A lower uptime means the clock restarted and lost its apps."""
     await setup_entry(hass, mock_entry)
@@ -342,6 +345,9 @@ async def test_clock_reboot_republishes(
 
     async_fire_mqtt_message(hass, f"{PREFIX}/stats", '{"uptime": 3}')
     await hass.async_block_till_done()
+    # Sent a moment later, once for everything that asked for it.
+    assert published(mqtt_mock) == ['{"text":"a"}']
+    await tick(hass, freezer, 1.1)
     assert published(mqtt_mock) == ['{"text":"a"}', '{"text":"a"}']
 
 

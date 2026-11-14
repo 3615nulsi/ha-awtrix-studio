@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import base64
+from datetime import timedelta
 from io import BytesIO
 import json
 from typing import Any
 
+from freezegun.api import FrozenDateTimeFactory
 from homeassistant.config_entries import ConfigSubentryDataWithId
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.template import Template
@@ -15,6 +17,7 @@ import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_fire_mqtt_message,
+    async_fire_time_changed,
 )
 from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
 from pytest_homeassistant_custom_component.typing import (
@@ -300,6 +303,7 @@ async def test_animated_icons_are_stored_on_the_clock(
     hass: HomeAssistant,
     mqtt_mock: MqttMockHAClient,
     aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
 ) -> None:
     """An animated icon is uploaded once, then named by its number."""
     gif = png(frames=3)
@@ -359,6 +363,9 @@ async def test_animated_icons_are_stored_on_the_clock(
         f"{PREFIX}/stats",
         json.dumps({"uptime": 10, "ip_address": "192.168.1.161"}),
     )
+    # Apps are published again once the address is known, a moment later.
+    freezer.tick(timedelta(seconds=1.1))
+    async_fire_time_changed(hass)
     await hass.async_block_till_done()
     assert last_page()["icon"] == "57980"
     uploads = [c for c in aioclient_mock.mock_calls if c[0].upper() == "POST"]
