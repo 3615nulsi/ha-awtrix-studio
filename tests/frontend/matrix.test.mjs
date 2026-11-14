@@ -114,11 +114,26 @@ test("progress bar on the bottom row", () => {
   // Only the bottom row is drawn.
   assert.ok(result.pixels.slice(0, WIDTH * (HEIGHT - 1)).every((p) => p === null));
 
-  // NG names, beside an icon: the bar starts after the icon.
+  // NG names, beside an icon: the bar starts right after the 8 columns of
+  // the icon.
   const ng = renderPage({ icon: "1", progress: 100, progressColor: "#0000FF" });
   const row = Array.from({ length: WIDTH }, (_, x) => at(ng, x, HEIGHT - 1));
-  assert.ok(row.slice(0, 9).every((c) => c === null));
-  assert.ok(row.slice(9).every((c) => c === "#0000FF"));
+  assert.ok(row.slice(0, 8).every((c) => c === null));
+  assert.ok(row.slice(8).every((c) => c === "#0000FF"));
+
+  // A LED is lit only once the value covers it: 40 % of 32 is 12, not 13.
+  const part = renderPage({ progress: 40, progressC: "#00FF00", progressBC: "#FF0000" });
+  const lit = Array.from({ length: WIDTH }, (_, x) => at(part, x, HEIGHT - 1));
+  assert.equal(lit.filter((c) => c === "#00FF00").length, 12);
+});
+
+test("TC002 without enlarged apps: the line sits in the middle of 16 rows", () => {
+  const size = { width: 52, height: 16, scale: 1 };
+  const result = renderPage({ text: "1", color: "#FF0000", progress: 100, progressC: "#00FF00" }, size);
+  const rows = (color) => [...new Set(result.pixels.flatMap((p, i) => (p === color ? [Math.floor(i / 52)] : [])))];
+  // Text on rows 5 to 9, like the clock; the bar stays on the last row.
+  assert.deepEqual(rows("#FF0000"), [5, 6, 7, 8, 9]);
+  assert.deepEqual(rows("#00FF00"), [15]);
 });
 
 test("TC002: apps on a 26 x 8 grid drawn at double size", () => {
@@ -198,4 +213,41 @@ test("an NG layout region with a progress bar and an icon", () => {
   assert.equal(at(result, 16, 12), "#00FF00");
   assert.equal(at(result, 51, 15), "#FF0000");
   assert.equal(at(result, 16, 11), null);
+});
+
+/** The lit rows and columns of `color`, as [firstRow, lastRow, firstColumn, lastColumn]. */
+function bounds(result, color) {
+  const lit = result.pixels.flatMap((p, i) => (p === color ? [i] : []));
+  const ys = lit.map((i) => Math.floor(i / result.width));
+  const xs = lit.map((i) => i % result.width);
+  return [Math.min(...ys), Math.max(...ys), Math.min(...xs), Math.max(...xs)];
+}
+
+test("an NG layout centers text like the clock", () => {
+  const tc002 = { width: 26, height: 8, scale: 2 };
+  // Measured on a TC002 (firmware 1.2.3): "8" in boxes 12 x 7, 13 x 8,
+  // 12 x 11 and 15 x 16.
+  const boxes = [[0, 12, 7, "#FF0000"], [12, 13, 8, "#00FF00"], [25, 12, 11, "#0000FF"], [37, 15, 16, "#FFFF00"]];
+  const probe = (font) => renderPage({
+    layout: { regions: boxes.map(([x, w, h, color]) => ({ box: [x, 0, w, h], text: "8", color, ...(font ? { font } : {}) })) },
+  }, tc002);
+  const small = probe(null);
+  assert.deepEqual(boxes.map((b) => bounds(small, b[3])), [[1, 5, 4, 6], [1, 5, 17, 19], [3, 7, 29, 31], [5, 9, 43, 45]]);
+  const chunky = probe("matrix-chunky8");
+  assert.deepEqual(boxes.map((b) => bounds(chunky, b[3])), [[0, 6, 4, 6], [0, 6, 17, 19], [2, 8, 29, 31], [4, 10, 43, 45]]);
+});
+
+test("an NG layout region: fragments, and a palette over them", () => {
+  const tc002 = { width: 26, height: 8, scale: 2 };
+  const region = { box: [0, 0, 52, 16], text: [{ text: "A", color: "#00FFFF" }, { text: "B" }], color: "#FF8800" };
+  // A piece without a color takes the region's.
+  assert.deepEqual(litColors(renderPage({ layout: { regions: [region] } }, tc002).pixels), new Set(["#00FFFF", "#FF8800"]));
+  // A palette paints every piece, the colored one too.
+  const painted = renderPage({ layout: { palette: ["#FF0000", "#0000FF"], regions: [{ ...region, color: "palette" }] } }, tc002);
+  assert.deepEqual(litColors(painted.pixels), new Set(["#FF0000", "#0000FF"]));
+
+  // 40 % of 52 columns: 20 lit, like the clock.
+  const bar = renderPage({ layout: { regions: [{ box: [0, 12, 52, 3], progress: 40, color: "#00FF00", trackColor: "#FF0000" }] } }, tc002);
+  assert.equal(at(bar, 19, 12), "#00FF00");
+  assert.equal(at(bar, 20, 12), "#FF0000");
 });

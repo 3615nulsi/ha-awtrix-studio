@@ -264,7 +264,7 @@ Les apps sont renvoyées automatiquement, de même quand MQTT se reconnecte. Les
 - Les changements de données sont limités à un message par seconde et par app au maximum.
 - L'horloge annonce l'app à l'écran (`<prefix>/stats/currentApp` sous AWTRIX 3, `<prefix>/state/apps/active` sous AWTRIX NG) ; par défaut, les pages n'alternent que pendant que l'app est affichée.
 - Un redémarrage se repère à l'uptime de l'horloge (`<prefix>/stats` sous AWTRIX 3), ou à son retour `online` (`<prefix>/availability` sous AWTRIX NG) ; les apps sont alors renvoyées, et la liste des fichiers d'icônes de l'horloge est relue (elle l'est aussi quand elle date de plus de trois minutes).
-- Sous AWTRIX NG, l'horloge répond à chaque app reçue (`…/result`) : un refus est affiché dans le panneau. NG ignore sans rien dire un message de plus de 8192 octets (topic compris) : un tel payload n'est pas envoyé, et le panneau l'indique.
+- Sous AWTRIX NG, l'horloge répond à chaque app reçue (`…/result`) : un refus est affiché dans le panneau. NG ignore sans rien dire un message de plus de 8187 octets, topic compris (8192 avec l'en-tête du paquet MQTT) : un tel payload n'est pas envoyé, et le panneau l'indique.
 - Les messages partent directement par le client MQTT : pas d'appel de service, pas d'événement.
 - Chaque app et chaque indicateur a une entité **interrupteur** : l'éteindre retire l'app de l'horloge (ou éteint l'indicateur) en gardant ses réglages. Son état survit aux redémarrages.
 - L'action `awtrix_studio.refresh` renvoie toutes les apps et tous les indicateurs activés.

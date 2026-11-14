@@ -413,8 +413,9 @@ async def set_length(
     await tick(hass, freezer, 2)
 
 
-# The largest text that fits: 8192 bytes with the topic and `{"text":""}`.
-FITS = 8192 - len(APP_TOPIC) - len('{"text":""}')
+# The largest text that fits: 8187 bytes with the topic and `{"text":""}`
+# (the clock's 8192 bytes count the 5 bytes of the MQTT packet header too).
+FITS = 8187 - len(APP_TOPIC) - len('{"text":""}')
 
 
 async def test_oversized_payload_is_not_sent(
@@ -423,7 +424,7 @@ async def test_oversized_payload_is_not_sent(
     freezer: FrozenDateTimeFactory,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """NG drops a message over 8192 bytes, topic included: it is not sent, and
+    """NG drops a message over 8187 bytes, topic included: it is not sent, and
     the panel says why until a payload fits again."""
     hass.states.async_set("input_number.n", str(FITS))
     entry = sized_entry()
@@ -436,7 +437,7 @@ async def test_oversized_payload_is_not_sent(
     await set_length(hass, freezer, FITS + 1)
     assert len(published(mqtt_mock, APP_TOPIC)) == count
     assert app.clock_error == (
-        "message too large: 8193 bytes with its topic (limit 8192)"
+        "message too large: 8188 bytes with its topic (limit 8187)"
     )
     assert caplog.text.count("Not sending app 'demo'") == 1
 
@@ -493,7 +494,7 @@ async def test_oversized_test_payload(
         )
         result = (await client.receive_json())["result"]
         assert result["errors"] == {"base": "payload_too_large"}
-        assert "limit 8192" in result["detail"]
+        assert "limit 8187" in result["detail"]
     assert len(published(mqtt_mock, APP_TOPIC)) == count
     assert published(mqtt_mock, f"{PREFIX}/cmd/apps/pushed/other") == []
     assert app.clock_error is None

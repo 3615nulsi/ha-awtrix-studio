@@ -264,7 +264,7 @@ Apps are sent again automatically, as well as when MQTT reconnects. Requests tha
 - Data changes are throttled to at most one message per second per app.
 - The clock announces the app on screen (`<prefix>/stats/currentApp` on AWTRIX 3, `<prefix>/state/apps/active` on AWTRIX NG); by default, pages only alternate while that's the app being shown.
 - A reboot is spotted from the clock's uptime (`<prefix>/stats` on AWTRIX 3), or from the clock coming back `online` (`<prefix>/availability` on AWTRIX NG); apps are then sent again, and the list of icon files on the clock is read again (it is also read again when older than three minutes).
-- On AWTRIX NG, the clock answers every app it receives (`…/result`): a refusal is shown in the panel. NG silently drops any message over 8192 bytes (topic included): such a payload is not sent, and the panel says so.
+- On AWTRIX NG, the clock answers every app it receives (`…/result`): a refusal is shown in the panel. NG silently drops any message over 8187 bytes, topic included (8192 with the header of the MQTT packet): such a payload is not sent, and the panel says so.
 - Messages go straight to the MQTT client: no service calls, no events.
 - Each app and indicator has a **switch** entity: turning it off removes the app from the clock (or turns the indicator off) and keeps its settings. Its state survives restarts.
 - The `awtrix_studio.refresh` action sends every enabled app and indicator again.
