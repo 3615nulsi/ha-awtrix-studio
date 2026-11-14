@@ -616,3 +616,115 @@ async def test_loop_order(
     assert len([c for c in aioclient_mock.mock_calls if c[0].upper() == "POST"]) == 1
     await tick(hass, freezer, 1.5)
     assert len([c for c in aioclient_mock.mock_calls if c[0].upper() == "POST"]) == 2
+
+
+async def test_template_default_icon(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    entry: MockConfigEntry,
+    mqtt_mock: MqttMockHAClient,
+) -> None:
+    """A template app's icon goes to the pages that name none, everywhere."""
+    client = await hass_ws_client(hass)
+    topic = f"{PREFIX}/custom/demo"
+    data = {
+        "mode": "template",
+        "template": '[{"text": "a"}, {"text": "b", "icon": "moon"}]',
+        "icon": " sun ",
+    }
+
+    async def send(kind: str, **extra: Any) -> dict[str, Any]:
+        await client.send_json_auto_id(
+            {
+                "type": f"awtrix_studio/{kind}",
+                "entry_id": entry.entry_id,
+                "kind": "app",
+                "subentry_id": "app_demo",
+                "data": data,
+                **extra,
+            }
+        )
+        response = await client.receive_json()
+        assert response["success"], response
+        return response
+
+    await send("preview")
+    event = (await client.receive_json())["event"]
+    assert event["pages"] == [
+        {"text": "a", "icon": "sun"},
+        {"text": "b", "icon": "moon"},
+    ]
+
+    response = await send("test")
+    assert response["result"] == {"published": True}
+    assert json.loads(published(mqtt_mock, topic)[-1]) == {"text": "a", "icon": "sun"}
+
+    await send("save")
+    await hass.async_block_till_done()
+    assert entry.subentries["app_demo"].data["icon"] == "sun"
+    assert json.loads(published(mqtt_mock, topic)[-1]) == {"text": "a", "icon": "sun"}
+
+    # No icon chosen: nothing stored, nothing added.
+    data["icon"] = ""
+    await send("save")
+    await hass.async_block_till_done()
+    assert "icon" not in entry.subentries["app_demo"].data
+    assert json.loads(published(mqtt_mock, topic)[-1]) == {"text": "a"}
+    data["icon"] = 42
+    assert (await send("save"))["result"]["errors"] == {"icon": "invalid_value"}
+
+
+async def test_label_color_is_validated(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    entry: MockConfigEntry,
+    mqtt_mock: MqttMockHAClient,
+) -> None:
+    """A label color is a strict color, stored only when chosen."""
+    hass.states.async_set("sensor.temp", "21", {"unit_of_measurement": "°C"})
+    client = await hass_ws_client(hass)
+
+    async def save(data: dict[str, Any]) -> dict[str, Any]:
+        await client.send_json_auto_id(
+            {
+                "type": "awtrix_studio/save",
+                "entry_id": entry.entry_id,
+                "kind": "app",
+                "data": data,
+            }
+        )
+        response = await client.receive_json()
+        assert response["success"], response
+        return response["result"]
+
+    app = {
+        "mode": "simple",
+        "app_name": "temp",
+        "entity_id": "sensor.temp",
+        "label": "T",
+        "label_color": '#FF0000" }}{{ 7*7 }}',
+    }
+    assert (await save(app))["errors"] == {"label_color": "invalid_color"}
+    second = {"entity_id": "sensor.temp", "label_color": "red"}
+    assert (await save({**app, "label_color": "", "segments": [second]}))["errors"] == {
+        "segments.0.label_color": "invalid_color"
+    }
+
+    plain = await save({**app, "app_name": "plain", "label_color": ""})
+    await hass.async_block_till_done()
+    assert "label_color" not in entry.subentries[plain["subentry_id"]].data
+
+    second["label_color"] = "#00ff00"
+    saved = await save({**app, "label_color": "#ff0000", "segments": [second]})
+    await hass.async_block_till_done()
+    data = entry.subentries[saved["subentry_id"]].data
+    assert data["label_color"] == [255, 0, 0]
+    assert data["segments"][0]["label_color"] == [0, 255, 0]
+    # The second entity has no label: its color has nothing to paint.
+    assert json.loads(published(mqtt_mock, f"{PREFIX}/custom/temp")[-1]) == {
+        "text": [
+            {"t": "T ", "c": "FF0000"},
+            {"t": "21°C", "c": "FFFFFF"},
+            {"t": " 21°C", "c": "FFFFFF"},
+        ]
+    }

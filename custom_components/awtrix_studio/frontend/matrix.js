@@ -314,15 +314,18 @@ function regionPaint(region, layout) {
 /** Lay a text out in its box; returns true when it does not fit (it scrolls). */
 function drawRegionText(region, box, layout, set) {
   const paint = regionPaint(region, layout);
+  // A piece without a color takes the region's (its palette included); a
+  // piece with one, like a label in its own color, keeps it.
   const parts = Array.isArray(region.text)
-    ? region.text.filter((p) => p && typeof p === "object").map((p) => ({ t: String(p.text ?? ""), c: parseColor(p.color, paint.color || "#FFFFFF") }))
-    : [{ t: String(region.text ?? ""), c: paint.color || "#FFFFFF" }];
+    ? region.text.filter((p) => p && typeof p === "object").map((p) => ({ t: String(p.text ?? ""), own: p.color !== undefined && p.color !== null,
+      c: parseColor(p.color, paint.color || "#FFFFFF") }))
+    : [{ t: String(region.text ?? ""), own: false, c: paint.color || "#FFFFFF" }];
   // Like the clock with its default settings: capitals unless told otherwise.
   const upper = region.textCase !== "asTyped";
   const chars = [];
-  parts.forEach((p) => Array.from(upper ? p.t.toUpperCase() : p.t).slice(0, 256).forEach((ch) => chars.push({ ch, c: p.c })));
-  if (paint.rainbow) chars.forEach((c, i) => { c.c = hueColor((i * 360) / Math.max(chars.length, 1)); });
-  else if (paint.gradient) chars.forEach((c, i) => { c.c = mixColors(paint.gradient[0], paint.gradient[1], chars.length > 1 ? i / (chars.length - 1) : 0); });
+  parts.forEach((p) => Array.from(upper ? p.t.toUpperCase() : p.t).slice(0, 256).forEach((ch) => chars.push({ ch, c: p.c, own: p.own })));
+  if (paint.rainbow) chars.forEach((c, i) => { if (!c.own) c.c = hueColor((i * 360) / Math.max(chars.length, 1)); });
+  else if (paint.gradient) chars.forEach((c, i) => { if (!c.own) c.c = mixColors(paint.gradient[0], paint.gradient[1], chars.length > 1 ? i / (chars.length - 1) : 0); });
 
   const font = FONTS[FONT_ALIASES[region.font] || region.font] || null;
   // The small font: 3 × 5 capitals on rows 1 to 5 of an 8-pixel line.

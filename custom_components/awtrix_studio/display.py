@@ -9,6 +9,12 @@ here for the clock's firmware; only options that differ from the firmware's
 default are stored. For AWTRIX NG they are written with NG's own keys when the
 app is published (`native_display`): milliseconds, words instead of numbers,
 one `scroll` object and one app palette shared by the text and the effect.
+A few options only exist on AWTRIX NG (`NG_ONLY`: how the text scrolls, how
+the palette moves); they are stored under names of our own and dropped on
+AWTRIX 3.
+
+Template apps may also have a default icon, given to the pages that name
+none (`apply_display`).
 
 Kept free of Home Assistant imports so it can be tested in isolation.
 """
@@ -20,7 +26,13 @@ import math
 import re
 from typing import Any, Final
 
-from .const import FIRMWARE_AWTRIX3, FIRMWARE_AWTRIX_NG
+from .const import (
+    CONF_ICON,
+    CONF_MODE,
+    FIRMWARE_AWTRIX3,
+    FIRMWARE_AWTRIX_NG,
+    MODE_TEMPLATE,
+)
 
 # Key of the display options in an app's stored data.
 CONF_DISPLAY: Final = "display"
@@ -61,6 +73,13 @@ OVERLAYS: Final = ("clear", "snow", "rain", "drizzle", "storm", "thunder", "fros
 NG_OVERLAYS: Final = ("snow", "rain", "drizzle", "storm", "thunder", "frost")
 # Options AWTRIX NG has no key for: dropped on NG clocks.
 NG_UNSUPPORTED: Final = ("topText", "save")
+# Options only AWTRIX NG has: dropped on AWTRIX 3 clocks. `scrollMode` is how
+# a text too long for the screen moves (`noScroll` is NG's "static" mode, and
+# "wrap" its default); `paletteSpeed` and `paletteSpan` animate and stretch
+# the app's palette (a rainbow or gradient text, or the effect's).
+NG_ONLY: Final = ("scrollMode", "paletteSpeed", "paletteSpan")
+SCROLL_MODES: Final = ("loop", "bounce")
+MAX_PALETTE_SPAN: Final = 512
 
 # Effects and palettes added to the firmware later, or palette files stored on
 # the clock, are accepted by name.
@@ -200,6 +219,13 @@ def normalize_display(data: Any, firmware: str = FIRMWARE_AWTRIX3) -> dict[str, 
     keep("textOffset", _int(data, "textOffset", -32, 32), 0)
     keep("center", _bool(data, "center"), True)
     keep("noScroll", _bool(data, "noScroll"), False)
+    scroll_mode = data.get("scrollMode")
+    if scroll_mode not in (None, "", "wrap"):
+        if scroll_mode not in SCROLL_MODES:
+            raise InvalidDisplayError("scrollMode", "invalid_value")
+        # A text that does not scroll has no way of scrolling.
+        if not clean.get("noScroll"):
+            clean["scrollMode"] = scroll_mode
     keep("scrollSpeed", _int(data, "scrollSpeed", 10, 500), 100)
     keep("pushIcon", _choice(data, "pushIcon", (0, 1, 2)), 0)
 
@@ -215,6 +241,10 @@ def normalize_display(data: Any, firmware: str = FIRMWARE_AWTRIX3) -> dict[str, 
         raise InvalidDisplayError(chosen[1], "text_style_conflict")
     for key in chosen:
         clean[key] = styles[key]
+
+    # How the palette of a rainbow or gradient text, or of an effect, moves.
+    keep("paletteSpeed", _float(data, "paletteSpeed", 0.0, 10.0), 0.0)
+    keep("paletteSpan", _int(data, "paletteSpan", 0, MAX_PALETTE_SPAN), 0)
 
     # Behind the text.
     keep("background", _color(data, "background"))
@@ -232,9 +262,8 @@ def normalize_display(data: Any, firmware: str = FIRMWARE_AWTRIX3) -> dict[str, 
     # What the clock does with the app.
     keep("lifetimeMode", _choice(data, "lifetimeMode", (0, 1)), 0)
     keep("save", _bool(data, "save"), False)
-    if firmware == FIRMWARE_AWTRIX_NG:
-        for key in NG_UNSUPPORTED:
-            clean.pop(key, None)
+    for key in NG_UNSUPPORTED if firmware == FIRMWARE_AWTRIX_NG else NG_ONLY:
+        clean.pop(key, None)
     return clean
 
 
@@ -270,6 +299,8 @@ NG_KEYS: Final[dict[str, tuple[str, Callable[[Any], Any]]]] = {
     "fadeText": ("textFadeMs", _same),
     "background": ("backgroundColor", _same),
     "lifetimeMode": ("lifetimeExpiry", LIFETIME_EXPIRY.__getitem__),
+    "paletteSpeed": ("paletteSpeed", _same),
+    "paletteSpan": ("paletteSpan", _same),
 }
 
 
@@ -286,6 +317,8 @@ def ng_display(display: Mapping[str, Any]) -> dict[str, Any]:
     scroll: dict[str, Any] = {}
     if display.get("noScroll"):
         scroll["mode"] = "static"
+    elif "scrollMode" in display:
+        scroll["mode"] = display["scrollMode"]
     if "scrollSpeed" in display:
         scroll["speed"] = display["scrollSpeed"]
     if scroll:
@@ -328,7 +361,8 @@ def native_display(display: Mapping[str, Any], firmware: str) -> dict[str, Any]:
 
 # Next to a `layout`, AWTRIX NG only takes these keys; the others go into the
 # layout (what is behind the boxes) or into its text regions (how text looks
-# and moves). Placement keys have no meaning there: each box places its text.
+# and moves). Placement keys have no meaning there: each box places its text,
+# except that text not centered starts at the left of its box.
 LAYOUT_PAGE_KEYS: Final = ("durationMs", "repeat", "lifetimeMs", "lifetimeExpiry")
 LAYOUT_KEYS: Final = (
     "effect",
@@ -336,6 +370,8 @@ LAYOUT_KEYS: Final = (
     "overlay",
     "palette",
     "paletteBlend",
+    "paletteSpeed",
+    "paletteSpan",
     "backgroundColor",
 )
 TEXT_REGION_KEYS: Final = ("textCase", "textBlinkMs", "textFadeMs", "scroll")
@@ -370,6 +406,8 @@ def _text_region_defaults(
     if not isinstance(region, dict) or "text" not in region:
         return region
     out = {k: defaults[k] for k in TEXT_REGION_KEYS if k in defaults}
+    if defaults.get("textAlign") == "start":
+        out["align"] = "start"
     out.update(region)
     if painted and "palette" not in region:
         out.pop("textColor", None)
@@ -377,12 +415,43 @@ def _text_region_defaults(
     return out
 
 
+def default_icon(data: Mapping[str, Any]) -> str | None:
+    """The icon a template app gives to its pages that name none, if any.
+
+    In simple mode, the icon is part of the generated template already.
+    """
+    if data.get(CONF_MODE) != MODE_TEMPLATE:
+        return None
+    icon = data.get(CONF_ICON)
+    if not isinstance(icon, str) or not icon.strip():
+        return None
+    return icon.strip()
+
+
+def _with_icon(page: dict[str, Any], icon: str) -> dict[str, Any]:
+    """The page with the default icon, unless it names one or is a layout.
+
+    An AWTRIX NG layout takes no top-level icon (the clock would refuse the
+    app): its icons are regions, placed by the template.
+    """
+    if "icon" in page or "layout" in page:
+        return page
+    return {**page, "icon": icon}
+
+
 def apply_display(
     pages: list[dict[str, Any]],
     display: Mapping[str, Any] | None,
     firmware: str = FIRMWARE_AWTRIX3,
+    *,
+    icon: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Return the pages with the display options added where not already set."""
+    """Return the pages with the display options added where not already set.
+
+    `icon`, a template app's default icon, is added the same way.
+    """
+    if icon:
+        pages = [_with_icon(page, icon) for page in pages]
     if not display:
         return pages
     defaults = native_display(display, firmware)

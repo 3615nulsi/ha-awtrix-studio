@@ -39,6 +39,8 @@ CONF_LIFETIME: Final = "lifetime"
 # Simple mode, apps
 CONF_ENTITY_ID: Final = "entity_id"
 CONF_LABEL: Final = "label"
+# The label's own color; without it, the label takes the value's color.
+CONF_LABEL_COLOR: Final = "label_color"
 CONF_ICON: Final = "icon"
 CONF_COLOR: Final = "color"
 CONF_DECIMALS: Final = "decimals"
@@ -134,10 +136,18 @@ LAYOUT_VALUE: Final = "value"
 LAYOUT_TITLE_VALUE: Final = "title_value"
 LAYOUT_VALUE_BAR: Final = "value_bar"
 LAYOUT_TWO_LINES: Final = "two_lines"
-LAYOUTS: Final = (LAYOUT_VALUE, LAYOUT_TITLE_VALUE, LAYOUT_VALUE_BAR, LAYOUT_TWO_LINES)
+# The value and the current time, one above the other.
+LAYOUT_VALUE_TIME: Final = "value_time"
+LAYOUTS: Final = (
+    LAYOUT_VALUE,
+    LAYOUT_TITLE_VALUE,
+    LAYOUT_VALUE_BAR,
+    LAYOUT_TWO_LINES,
+    LAYOUT_VALUE_TIME,
+)
 # Fonts a layout offers, all easy to read on the TC002: 8-pixel fonts for the
 # value (the "8x6" ones are wider, for short values), 6-pixel fonts for the
-# title and the two lines. The first of each is the default.
+# title, the time and the two lines. The first of each is the default.
 CONF_VALUE_FONT: Final = "value_font"
 CONF_TEXT_FONT: Final = "text_font"
 VALUE_FONTS: Final = (

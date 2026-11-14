@@ -21,7 +21,7 @@ const MIRROR_STALE_MS = 5000;
 // the one being edited at its top level (so every field works unchanged) and
 // all of them in `segments`.
 const MAX_SEGMENTS = 5;
-const SEGMENT_KEYS = ["entity_id", "label", "color", "decimals", "show_unit", "unit", "hide_when_zero", "threshold_1", "color_1",
+const SEGMENT_KEYS = ["entity_id", "label", "label_color", "color", "decimals", "show_unit", "unit", "hide_when_zero", "threshold_1", "color_1",
   "threshold_2", "color_2", "color_mode", "gradient", "_presetTouched", "gradient_min", "gradient_max", "gradient_stops"];
 
 // AWTRIX 3 background effects, palettes and weather overlays.
@@ -31,7 +31,9 @@ const PALETTES = ["Cloud", "Lava", "Ocean", "Forest", "Stripe", "Party", "Heat",
 const OVERLAYS = ["clear", "snow", "rain", "drizzle", "storm", "thunder", "frost"];
 const BUILTIN_APPS = ["Time", "Date", "Temperature", "Humidity", "Battery"];
 // Layouts of a simple app on a TC002 (AWTRIX NG), drawn on all 52 × 16 LEDs.
-const LAYOUTS = ["value", "title_value", "value_bar", "two_lines"];
+const LAYOUTS = ["value", "title_value", "value_bar", "two_lines", "value_time"];
+// How AWTRIX NG moves a text too long for its place; "static" is `noScroll`.
+const SCROLL_MODES = ["wrap", "static", "loop", "bounce"];
 // Fonts a layout offers, all legible on the TC002; the first is the default.
 const VALUE_FONTS = ["matrix-chunky8", "matrix-light8", "matrix-chunky8x6", "matrix-light8x6"];
 const TEXT_FONTS = ["matrix-light6", "matrix-chunky6"];
@@ -1057,6 +1059,8 @@ class AwtrixStudioPanel extends HTMLElement {
     return {
       entity_id: d.entity_id || "",
       label: d.label || "",
+      // Empty: the label takes the value's color.
+      label_color: d.label_color ? toHex(d.label_color, "#FFFFFF") : "",
       color: toHex(d.color, "#FFFFFF"),
       decimals: d.decimals ?? "",
       show_unit: d.show_unit ?? true,
@@ -1120,6 +1124,9 @@ class AwtrixStudioPanel extends HTMLElement {
       repeat: d.repeat ?? "",
       scrollSpeed: d.scrollSpeed ?? "",
       noScroll: d.noScroll ?? false,
+      scrollMode: d.noScroll ? "static" : d.scrollMode || "wrap",
+      paletteSpeed: d.paletteSpeed ?? "",
+      paletteSpan: d.paletteSpan ?? "",
       pushIcon: String(d.pushIcon ?? 0),
       textCase: String(d.textCase ?? 0),
       center: d.center ?? true,
@@ -1146,7 +1153,7 @@ class AwtrixStudioPanel extends HTMLElement {
     const d = this._form.display;
     const out = {
       duration: numberOrEmpty(d.duration), repeat: numberOrEmpty(d.repeat), scrollSpeed: numberOrEmpty(d.scrollSpeed),
-      noScroll: d.noScroll, pushIcon: Number(d.pushIcon), textCase: Number(d.textCase), center: d.center, topText: d.topText,
+      noScroll: this._isNG() ? d.scrollMode === "static" : d.noScroll, pushIcon: Number(d.pushIcon), textCase: Number(d.textCase), center: d.center, topText: d.topText,
       textOffset: numberOrEmpty(d.textOffset), lifetimeMode: Number(d.lifetimeMode), save: d.save,
     };
     if (d.style === "rainbow") out.rainbow = true;
@@ -1163,7 +1170,19 @@ class AwtrixStudioPanel extends HTMLElement {
       out.effectSettings = settings;
     }
     if (d.overlay) out.overlay = d.overlay;
+    // Options only AWTRIX NG has.
+    if (this._isNG() && ["loop", "bounce"].includes(d.scrollMode)) out.scrollMode = d.scrollMode;
+    if (this._paletteMoves()) {
+      out.paletteSpeed = numberOrEmpty(d.paletteSpeed);
+      out.paletteSpan = numberOrEmpty(d.paletteSpan);
+    }
     return out;
+  }
+
+  /** Whether the app may have a palette to move: AWTRIX NG, a palette text style, an effect, or a template. */
+  _paletteMoves() {
+    const d = this._form.display;
+    return this._isNG() && (this._form.mode === "template" || d.style === "rainbow" || d.style === "gradient" || Boolean(d.effect));
   }
 
   _progressPayload() {
@@ -1185,7 +1204,7 @@ class AwtrixStudioPanel extends HTMLElement {
   }
 
   _segmentPayload(s) {
-    return { entity_id: s.entity_id, label: s.label, color: s.color, decimals: numberOrEmpty(s.decimals),
+    return { entity_id: s.entity_id, label: s.label, label_color: s.label_color, color: s.color, decimals: numberOrEmpty(s.decimals),
       show_unit: s.show_unit, unit: s.unit, hide_when_zero: s.hide_when_zero,
       threshold_1: numberOrEmpty(s.threshold_1), color_1: s.color_1, threshold_2: numberOrEmpty(s.threshold_2), color_2: s.color_2,
       ...this._gradientPayload(s) };
@@ -1201,7 +1220,7 @@ class AwtrixStudioPanel extends HTMLElement {
         layout: f.layout, value_font: f.value_font, text_font: f.text_font, ...this._progressPayload(), display: this._displayPayload() };
     }
     if (kind === "app") {
-      return { mode: "template", app_name: f.app_name, template: f.template, page_interval: numberOrEmpty(f.page_interval),
+      return { mode: "template", app_name: f.app_name, template: f.template, icon: f.icon, page_interval: numberOrEmpty(f.page_interval),
         cycle_only_on_screen: f.cycle_only_on_screen, hide_when_empty: f.hide_when_empty, lifetime: numberOrEmpty(f.lifetime),
         display: this._displayPayload() };
     }
@@ -1338,6 +1357,8 @@ class AwtrixStudioPanel extends HTMLElement {
     const control = h("div", { class: "row icon-row" }, this._iconPreview, input,
       h("button", { class: "btn small", type: "button", onClick: () => this._openIconPicker() }, icon("search"), this.t("icon_pick")));
     this._drawIconPreview();
+    // A template app's icon is a default for its pages.
+    if (f.mode === "template") return this._field("icon", this.t("default_icon"), control, this.t("icon_help_template"), true);
     const help = f.layout ? `${this.t("icon_help_studio")} ${this.t("layout_icon_note")}` : this.t("icon_help_studio");
     return this._field("icon", this.t("icon"), control, help, true);
   }
@@ -1506,6 +1527,7 @@ class AwtrixStudioPanel extends HTMLElement {
       box.append(this._field("template", this.t("template_label"), textarea, kind === "app" ? this.t("template_help") : this.t("template_help_indicator"), true));
       if (kind === "app") {
         box.append(
+          this._iconField(),
           this._field("page_interval", this.t("page_interval"), this._input("page_interval", "number", { min: 0.5, max: 60, step: 0.1 })),
           this._field("lifetime", this.t("lifetime"), this._input("lifetime", "number", { min: 0, max: 86400, step: 1 })),
           this._check("cycle_only_on_screen", this.t("cycle_only_on_screen"), this.t("cycle_help")),
@@ -1564,11 +1586,11 @@ class AwtrixStudioPanel extends HTMLElement {
       control.value = f[key];
       return control;
     };
-    const text = f.layout === "title_value" || f.layout === "two_lines";
+    const text = { title_value: "title_font", two_lines: "lines_font", value_time: "time_font" }[f.layout];
     return h("div", { class: "fields wide" },
       this._field("value_font", this.t("value_font"), select("value_font", VALUE_FONTS),
         this.t(f.layout === "two_lines" ? "value_font_alone_help" : "value_font_help")),
-      text ? this._field("text_font", this.t(f.layout === "two_lines" ? "lines_font" : "title_font"), select("text_font", TEXT_FONTS)) : null);
+      text ? this._field("text_font", this.t(text), select("text_font", TEXT_FONTS)) : null);
   }
 
   _setLayout(value, select) {
@@ -1619,6 +1641,7 @@ class AwtrixStudioPanel extends HTMLElement {
       f.layout === "title_value"
         ? this._field("label", this.t("title_label"), this._input("label", "text", { maxlength: 64 }), this.t("title_label_help"))
         : this._field("label", this.t("label"), this._input("label", "text", { maxlength: 64 }), this.t("label_help")),
+      this._labelColorField(),
       this._field("color", this.t("text_color"), this._input("color", "color")),
       this._field("decimals", this.t("decimals"), this._input("decimals", "number", { min: 0, max: 4, step: 1 }), this.t("decimals_help")),
       this._check("hide_when_zero", this.t("hide_when_zero"), many ? this.t("hide_when_zero_segment") : null),
@@ -1632,6 +1655,26 @@ class AwtrixStudioPanel extends HTMLElement {
         many ? h("button", { class: "btn small", type: "button", onClick: () => this._removeSegment() }, this.t("remove_segment")) : null));
     }
     return fieldset;
+  }
+
+  /** The label's own color; empty, the label takes the value's (a title is grey). */
+  _labelColorField() {
+    const f = this._form;
+    const title = f.layout === "title_value";
+    const fallback = () => (title ? "#969696" : f.color);
+    const state = h("span", { class: "muted" });
+    const input = h("input", { id: "f-label_color", type: "color", value: f.label_color || fallback(),
+      onInput: (e) => { f.label_color = e.target.value; show(); this._schedulePreview(); } });
+    const reset = h("button", { class: "btn small", type: "button",
+      onClick: () => { f.label_color = ""; input.value = fallback(); show(); this._syncSegment(); this._schedulePreview(); } },
+    this.t("label_color_clear"));
+    const show = () => {
+      state.textContent = f.label_color ? "" : this.t(title ? "label_color_grey" : "label_color_same");
+      reset.hidden = !f.label_color;
+    };
+    show();
+    return this._field("label_color", this.t("label_color"), h("div", { class: "row" }, input, reset, state),
+      this.t(title ? "label_color_title_help" : "label_color_help"));
   }
 
   // ---------------------------------------------------- display options
@@ -1702,7 +1745,26 @@ class AwtrixStudioPanel extends HTMLElement {
       this._dField("scrollSpeed", this.t("scroll_speed"), this._dInput("scrollSpeed", "number", { min: 10, max: 500, step: 10, placeholder: "100" }),
         this.t("scroll_speed_help")),
       this._dField("pushIcon", this.t("push_icon"), this._dSelect("pushIcon", [0, 1, 2].map((n) => [String(n), this.t(`push_icon_${n}`)]))),
-      this._dCheck("noScroll", this.t("no_scroll")));
+      this._isNG() ? this._scrollModeField() : this._dCheck("noScroll", this.t("no_scroll")));
+  }
+
+  /** AWTRIX NG: how a long text moves; "never" is `noScroll`, the others `scrollMode`. */
+  _scrollModeField() {
+    const field = this._dField("scrollMode", this.t("scroll_mode"),
+      this._dSelect("scrollMode", SCROLL_MODES.map((mode) => [mode, this.t(`scroll_mode_${mode}`)])));
+    this._errors["display.noScroll"] = this._errors["display.scrollMode"];
+    return field;
+  }
+
+  /** AWTRIX NG: how the app's palette moves and how far it stretches. */
+  _paletteFields() {
+    if (!this._paletteMoves()) return [];
+    return [
+      this._dField("paletteSpeed", this.t("palette_speed"),
+        this._dInput("paletteSpeed", "number", { min: 0, max: 10, step: 0.1, placeholder: "0" }), this.t("palette_speed_help")),
+      this._dField("paletteSpan", this.t("palette_span"),
+        this._dInput("paletteSpan", "number", { min: 0, max: 512, step: 1, placeholder: "0" }), this.t("palette_span_help")),
+    ];
   }
 
   _displayText(rerender) {
@@ -1726,7 +1788,7 @@ class AwtrixStudioPanel extends HTMLElement {
         this.t("text_offset_help")),
       this._dCheck("center", this.t("center")),
       this._isNG() ? null : this._dCheck("topText", this.t("top_text")),
-      style, styleOptions || h("div"));
+      style, styleOptions || h("div"), ...this._paletteFields());
   }
 
   _displayBackground(rerender) {

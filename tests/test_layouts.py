@@ -26,6 +26,7 @@ from custom_components.awtrix_studio.display import apply_display
 from custom_components.awtrix_studio.drivers import AwtrixNGDriver
 from custom_components.awtrix_studio.icons import ICON_URL, IconStore, convert
 from custom_components.awtrix_studio.templates import (
+    TITLE_COLOR,
     InvalidSimpleOptionsError,
     build_app_template,
 )
@@ -263,10 +264,16 @@ def test_display_options_on_a_layout() -> None:
                     "color": "palette",
                     "textCase": "upper",
                     "scroll": {"mode": "static"},
+                    # Text not centered starts at the left of its box.
+                    "align": "start",
                 },
             ],
         },
     }
+    # A region that places its text itself keeps its place.
+    placed = {"layout": {"version": 1, "regions": [{"text": "a", "align": "end"}]}}
+    [out] = apply_display([placed], {"center": False}, NG)
+    assert out["layout"]["regions"] == [{"text": "a", "align": "end"}]
     # The page is not changed in place, and what it sets itself wins.
     assert "durationMs" not in page
     own = {
@@ -488,3 +495,140 @@ async def test_fonts(hass: HomeAssistant) -> None:
     hass.states.async_set("sensor.h", "48")
     title, value = regions(hass, options)
     assert (title["font"], value["font"]) == ("matrix-light6", "matrix-chunky8")
+
+
+async def test_value_time(hass: HomeAssistant) -> None:
+    """The current time above the value, written by the template itself."""
+    hass.states.async_set("sensor.t", "21.46", {"unit_of_measurement": "°C"})
+    options = {
+        "layout": "value_time",
+        "entity_id": "sensor.t",
+        "label": "In",
+        "icon": "2422",
+        "decimals": 1,
+        "text_font": "matrix-chunky6",
+    }
+    template = build_app_template(options, NG)
+    assert "now()" in template
+    icon, time, value = regions(hass, options)
+    assert icon == ICON
+    assert time == {
+        "id": "time",
+        "box": [17, 0, 35, 7],
+        "text": time["text"],
+        "font": "matrix-chunky6",
+        "color": TITLE_COLOR,
+    }
+    hours, minutes = time["text"].split(":")
+    assert (len(hours), len(minutes)) == (2, 2)
+    assert 0 <= int(hours) < 24
+    assert 0 <= int(minutes) < 60
+    assert value == {
+        "id": "value",
+        "box": [17, 8, 35, 8],
+        "text": "In 21.5°C",
+        "font": "matrix-chunky8",
+        "color": "#FFFFFF",
+    }
+    # Like the other layouts, the app hides without a value.
+    hass.states.async_set("sensor.t", "unavailable")
+    assert render(hass, template) == []
+
+
+async def test_label_color_in_layouts(hass: HomeAssistant) -> None:
+    """A label in its own color: a fragment inline, or the title's color."""
+    hass.states.async_set("sensor.t", "21", {"unit_of_measurement": "°C"})
+    options = {
+        "layout": "value",
+        "entity_id": "sensor.t",
+        "label": "In",
+        "label_color": [0, 170, 255],
+        "color": [255, 150, 30],
+    }
+    # The value's piece has no color: it takes the region's.
+    fragments = [{"text": "In ", "color": "#00AAFF"}, {"text": "21°C"}]
+    [value] = regions(hass, options)
+    assert (value["text"], value["color"]) == (fragments, "#FF961E")
+    options["layout"] = "value_time"
+    assert regions(hass, options)[1]["text"] == fragments
+    options["layout"] = "value_bar"
+    assert regions(hass, options)[0]["text"] == fragments
+    options["layout"] = "title_value"
+    title, value = regions(hass, options)
+    assert (title["text"], title["color"]) == ("In", "#00AAFF")
+    assert (value["text"], value["color"]) == ("21°C", "#FF961E")
+    # Without a label, the color has nothing to paint.
+    options.update(layout="value", label="")
+    assert regions(hass, options)[0]["text"] == "21°C"
+
+    hass.states.async_set("sensor.out", "12", {"unit_of_measurement": "°C"})
+    options = {
+        "layout": "two_lines",
+        "entity_id": "sensor.t",
+        "label": "IN",
+        "segments": [
+            {
+                "entity_id": "sensor.out",
+                "label": "EX",
+                "label_color": "#FF0000",
+                "color": "#00AAFF",
+            }
+        ],
+    }
+    line1, line2 = regions(hass, options)
+    assert line1["text"] == "IN 21°C"
+    assert line2["text"] == [{"text": "EX ", "color": "#FF0000"}, {"text": "12°C"}]
+    assert line2["color"] == "#00AAFF"
+    # Left alone, the line keeps its fragments.
+    hass.states.async_set("sensor.t", "unknown")
+    [alone] = regions(hass, options)
+    assert (alone["text"], alone["color"]) == (line2["text"], "#00AAFF")
+
+
+async def test_layout_label_color_is_quoted(hass: HomeAssistant) -> None:
+    """A label shown in its own color still cannot run as code."""
+    hass.states.async_set("sensor.x", "1")
+    label = '"}]{{ 7 * 7 }}{%'
+    options = {
+        "layout": "value",
+        "entity_id": "sensor.x",
+        "label": label,
+        "label_color": "#FF0000",
+    }
+    assert regions(hass, options)[0]["text"][0]["text"] == f"{label} "
+    options.update(layout="two_lines", segments=[{"entity_id": "sensor.x"}])
+    assert regions(hass, options)[0]["text"][0]["text"] == f"{label} "
+
+
+async def test_save_value_time(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, mqtt_mock: MqttMockHAClient
+) -> None:
+    """The value and time layout shows one entity."""
+    hass.states.async_set("sensor.h", "48")
+    entry = ng_entry()
+    await setup(hass, entry)
+    client = await hass_ws_client(hass)
+    app = {
+        "mode": "simple",
+        "app_name": "h",
+        "entity_id": "sensor.h",
+        "layout": "value_time",
+    }
+    for data, expected in (
+        ({**app, "segments": [{"entity_id": "sensor.h"}]}, "layout_one_entity"),
+        (app, None),
+    ):
+        await client.send_json_auto_id(
+            {
+                "type": "awtrix_studio/save",
+                "entry_id": entry.entry_id,
+                "kind": "app",
+                "data": data,
+            }
+        )
+        result = (await client.receive_json())["result"]
+        if expected:
+            assert result["errors"] == {"segments": expected}
+        else:
+            stored = entry.subentries[result["subentry_id"]].data
+            assert stored["layout"] == "value_time"
