@@ -316,8 +316,8 @@ Résultat : l'automatisation actuelle (déclencheur toutes les 3 s, `repeat`,
 - Domaine : `awtrix_studio`, dépendance : `mqtt`.
 - Version minimale de HA : celle qui stabilise les config subentries (à
   confirmer, 2025.x).
-- Distribution : HACS (`hacs.json`), validation GitHub Actions (hassfest +
-  action HACS).
+- Distribution : Marketplace de Home Assistant (HACS avant la 2026.11), via
+  `hacs.json` ; validation GitHub Actions (hassfest + action `hacs/action`).
 - Tests : `pytest-homeassistant-custom-component`, MQTT simulé.
 - Traductions : anglais et français.
 - Documentation (README) en anglais, avec l'app tram en exemple.

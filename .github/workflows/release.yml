@@ -1,16 +1,17 @@
 name: Release
 
-# Publishes a GitHub release (used by HACS) when the version in manifest.json
-# changes on main. Can also be started by hand from the Actions tab.
+# Publishes a GitHub release (used by the Marketplace, formerly HACS) when the
+# version in manifest.json changes on main. Can also be started by hand from
+# the Actions tab.
 # Run it by hand on a branch to publish a beta from there.
 # Release notes come from .github/release-notes/v<version>.md when present,
 # otherwise they are generated from the commits.
 #
 # Each release carries awtrix_studio.zip (the content of
-# custom_components/awtrix_studio), which HACS installs because hacs.json sets
-# "zip_release". Its download count shows how many installs and updates went
-# through HACS. If the release already exists without the zip, the zip is
-# added to it.
+# custom_components/awtrix_studio), which the Marketplace installs because
+# hacs.json sets "zip_release". Its download count shows how many installs and
+# updates went through the Marketplace. If the release already exists without
+# the zip, the zip is added to it.
 
 on:
   push:
@@ -50,8 +51,8 @@ jobs:
             fi
             exit 0
           fi
-          # A beta (0.12.0b1) or release candidate is a pre-release: HACS
-          # only offers it to those who ask for beta versions.
+          # A beta (0.12.0b1) or release candidate is a pre-release: the
+          # Marketplace only offers it to those who switch pre-releases on.
           kind=()
           if [[ "$TAG" =~ (a|b|rc)[0-9]+$ ]]; then
             kind=(--prerelease)

@@ -6,16 +6,18 @@
 Sans automatisation, sans blueprint, sans YAML.
 Compatible **AWTRIX 3** et **AWTRIX NG** : Ulanzi TC001, Ulanzi TC002 et horloges DIY.
 
-[![Ouvrir dans HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=3615nulsi&repository=ha-awtrix-studio&category=integration)
+[![Ouvrir votre Home Assistant et afficher Awtrix Studio dans le Marketplace.](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=3615nulsi&repository=ha-awtrix-studio&category=integration)
 
 [![Validate](https://github.com/3615nulsi/ha-awtrix-studio/actions/workflows/validate.yml/badge.svg)](https://github.com/3615nulsi/ha-awtrix-studio/actions/workflows/validate.yml)
 [![Tests](https://github.com/3615nulsi/ha-awtrix-studio/actions/workflows/tests.yml/badge.svg)](https://github.com/3615nulsi/ha-awtrix-studio/actions/workflows/tests.yml)
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories)
+[![Marketplace Custom](https://img.shields.io/badge/Marketplace-Custom-41BDF5.svg)](https://www.home-assistant.io/integrations/marketplace/)
 [![Téléchargements](https://img.shields.io/github/downloads/3615nulsi/ha-awtrix-studio/total.svg?label=t%C3%A9l%C3%A9chargements)](https://github.com/3615nulsi/ha-awtrix-studio/releases)
 
 🇺🇸 [Read in English](README.md)
 
-![Le panneau Awtrix Studio](https://raw.githubusercontent.com/3615nulsi/ha-awtrix-studio/main/docs/images/overview-fr.png)
+![Le panneau Awtrix Studio, aux commandes d'un Ulanzi TC002](https://raw.githubusercontent.com/3615nulsi/ha-awtrix-studio/main/docs/images/overview-fr.png)
+
+<sub>Le panneau aux commandes d'un Ulanzi TC002 (52 × 16 LED) sous AWTRIX NG. Il est le même avec un TC001, sur un écran de 32 × 8.</sub>
 
 </div>
 
@@ -48,10 +50,14 @@ Awtrix Studio pilote les horloges sous l'un ou l'autre firmware, et les reconna�
 
 Il vous faut Home Assistant 2025.8 ou plus récent, l'[intégration MQTT](https://www.home-assistant.io/integrations/mqtt/), et une horloge sous [AWTRIX 3](https://blueforcer.github.io/awtrix3/) ou [AWTRIX NG](https://blueforcer.github.io/awtrix-ng/), reliée au même broker MQTT. Sous AWTRIX NG, MQTT reste désactivé tant que vous ne l'activez pas dans la page web de l'horloge (**System → MQTT**).
 
-1. **Installer.** Cliquez sur le bouton **Ouvrir dans HACS** ci-dessus, puis **Télécharger**, et redémarrez Home Assistant.
+1. **Installer.** Cliquez sur le bouton **Marketplace** ci-dessus, puis sur **Installer**. Home Assistant vous dit s'il a besoin d'un redémarrage.
    <details><summary>Sans le bouton</summary>
 
-   Dans HACS, ouvrez le menu ⋮ → **Dépôts personnalisés**, ajoutez `https://github.com/3615nulsi/ha-awtrix-studio` en tant qu'**Intégration**, puis cherchez **Awtrix Studio** et téléchargez-la. Ou copiez à la main `custom_components/awtrix_studio` dans votre dossier de configuration.
+   Allez dans **Paramètres → Marketplace**, choisissez **Ajouter grâce à un lien**, saisissez `https://github.com/3615nulsi/ha-awtrix-studio` et validez avec **Ajouter**, puis **Installer**. Ou copiez à la main `custom_components/awtrix_studio` dans votre dossier de configuration.
+   </details>
+   <details><summary>Avec Home Assistant 2026.10 ou plus ancien</summary>
+
+   Le Marketplace est arrivé avec Home Assistant 2026.11, où il remplace HACS. Sur une version plus ancienne, [ouvrez plutôt Awtrix Studio dans HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=3615nulsi&repository=ha-awtrix-studio&category=integration) (ou, dans HACS, ⋮ → **Dépôts personnalisés**, ajoutez l'adresse ci-dessus en tant qu'**Intégration**), téléchargez-la et redémarrez Home Assistant.
    </details>
 
 2. **Ajouter l'horloge.** Allez dans **Paramètres → Appareils et services → Ajouter une intégration → Awtrix Studio**, et saisissez le préfixe MQTT de l'horloge (il figure dans ses réglages MQTT, par exemple `awtrix_1f1b94`). Laissez le firmware sur **Détecter automatiquement** : Awtrix Studio interroge l'horloge, qui doit être allumée et connectée à MQTT.
@@ -67,7 +73,7 @@ Le haut du panneau reproduit l'écran réel de l'horloge. En dessous, chaque app
 
 ### Le mode simple : zéro code
 
-Choisissez une entité, ajoutez un libellé, une icône et des couleurs, et c'est fini. L'aperçu suit ce que vous tapez.
+Choisissez une entité, ajoutez un libellé, une icône et des couleurs, et c'est fini. L'aperçu suit ce que vous tapez. Ici, une température extérieure sur un TC002, avec la mise en page **Titre et valeur** et une couleur qui suit la valeur.
 
 ![Éditeur en mode simple](https://raw.githubusercontent.com/3615nulsi/ha-awtrix-studio/main/docs/images/simple-fr.png)
 
@@ -90,7 +96,7 @@ L'app quitte aussi la rotation d'elle-même tant que son entité est indisponibl
 
 ### Le mode modèle : liberté totale
 
-Pour aller plus loin (dessins, barres de progression, plusieurs pages), écrivez un modèle Home Assistant qui produit le JSON de l'horloge. L'aperçu montre chaque page, les fait alterner comme l'horloge, et signale tout de suite ce qui cloche.
+Pour aller plus loin (dessins, barres de progression, plusieurs pages), écrivez un modèle Home Assistant qui produit le JSON de l'horloge. L'aperçu montre chaque page, les fait alterner comme l'horloge, et signale tout de suite ce qui cloche. Ici, les deux prochains trams, un par ligne d'un TC002.
 
 ![Éditeur en mode modèle](https://raw.githubusercontent.com/3615nulsi/ha-awtrix-studio/main/docs/images/editor-fr.png)
 
