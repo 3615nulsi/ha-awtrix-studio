@@ -374,6 +374,9 @@ LAYOUT_KEYS: Final = (
     "paletteSpan",
     "backgroundColor",
 )
+# A layout takes these only next to a `palette`: alone, the clock refuses the
+# whole app ("needs palette"), where an app without a layout ignores them.
+LAYOUT_PALETTE_KEYS: Final = ("paletteBlend", "paletteSpeed", "paletteSpan")
 TEXT_REGION_KEYS: Final = ("textCase", "textBlinkMs", "textFadeMs", "scroll")
 
 
@@ -387,6 +390,11 @@ def _apply_to_layout(
     for key in LAYOUT_KEYS:
         if key in defaults and key not in layout:
             layout[key] = defaults[key]
+    if "palette" not in layout:
+        # What the template wrote itself is left as written.
+        for key in LAYOUT_PALETTE_KEYS:
+            if key not in page["layout"]:
+                layout.pop(key, None)
     # An effect is drawn instead of a background color, never with one.
     if "effect" in layout and "backgroundColor" not in page["layout"]:
         layout.pop("backgroundColor", None)

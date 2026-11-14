@@ -133,8 +133,8 @@ n'en reçoit pas, NG refusant une `icon` à côté d'un `layout` : ses icônes s
 des zones placées par le modèle. Les refus de l'horloge (`…/result`, et
 `event/error` pour les commandes qui nomment le topic d'une de nos apps) sont
 affichés dans le panneau, et les effets, météos et palettes sont lus sur
-`state/capabilities`. NG ignore sans répondre un message de plus de 8192
-octets, topic compris : un tel payload n'est pas envoyé, l'app le signale dans
+`state/capabilities`. NG ignore sans répondre un message de plus de 8187
+octets, topic compris (8192 avec les 5 octets d'en-tête du paquet MQTT) : un tel payload n'est pas envoyé, l'app le signale dans
 le panneau jusqu'au prochain payload qui passe, et un test trop gros est
 refusé avec un message.
 

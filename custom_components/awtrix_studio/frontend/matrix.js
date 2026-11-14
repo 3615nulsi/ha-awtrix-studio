@@ -76,6 +76,15 @@ function isBlack(color) {
   return color === "#000000";
 }
 
+/**
+ * The first row of the 8-row line of an app on a grid `rows` high. Where
+ * apps are not enlarged (a TC002 with `enlargeApps` off), the clock draws
+ * the line in the middle of its 16 rows.
+ */
+function lineTop(rows) {
+  return Math.max(0, Math.floor((rows - HEIGHT) / 2));
+}
+
 function textWidth(chars) {
   return chars.reduce((w, ch) => w + glyph(ch)[0].length + 1, 0) - 1;
 }
@@ -186,7 +195,7 @@ export function renderPage(page, size = {}) {
     ? page.gradient.map((c) => parseColor(c, base)) : null;
   if (page.rainbow === true) chars.forEach((c, i) => { c.c = hueColor((i * 360) / Math.max(chars.length, 1)); });
   else if (gradient) chars.forEach((c, i) => { c.c = mixColors(gradient[0], gradient[1], chars.length > 1 ? i / (chars.length - 1) : 0); });
-  const top = page.topText === true ? 0 : 1;
+  const top = lineTop(H) + (page.topText === true ? 0 : 1);
   if (chars.length) {
     const w = textWidth(chars.map((c) => c.ch));
     const offset = Number.isFinite(page.textOffset) ? page.textOffset : 0;
@@ -201,13 +210,15 @@ export function renderPage(page, size = {}) {
     });
   }
 
-  // Progress bar on the bottom row.
+  // Progress bar on the bottom row, right against the icon (no gap column).
+  // Like the clock, a LED is lit only once the value covers it entirely.
   if (Number.isFinite(page.progress)) {
     const fill = parseColor(page.progressC, "#00FF00");
     const back = parseColor(page.progressBC, "#FFFFFF");
-    const span = areaWidth;
-    const lit = Math.round((Math.max(0, Math.min(100, page.progress)) / 100) * span);
-    for (let i = 0; i < span; i++) set(areaStart + i, H - 1, i < lit ? fill : back);
+    const start = hasIcon ? 8 : 0;
+    const span = W - start;
+    const lit = Math.floor((Math.max(0, Math.min(100, page.progress)) * span) / 100);
+    for (let i = 0; i < span; i++) set(start + i, H - 1, i < lit ? fill : back);
   }
 
   drawCommands(page.draw, set, W, H);
@@ -314,35 +325,38 @@ function regionPaint(region, layout) {
 /** Lay a text out in its box; returns true when it does not fit (it scrolls). */
 function drawRegionText(region, box, layout, set) {
   const paint = regionPaint(region, layout);
-  // A piece without a color takes the region's (its palette included); a
-  // piece with one, like a label in its own color, keeps it.
+  // A piece without a color takes the region's; a piece with one, like a
+  // label in its own color, keeps it. A palette paints the whole text, the
+  // pieces with a color too, as in an app without a layout.
   const parts = Array.isArray(region.text)
-    ? region.text.filter((p) => p && typeof p === "object").map((p) => ({ t: String(p.text ?? ""), own: p.color !== undefined && p.color !== null,
-      c: parseColor(p.color, paint.color || "#FFFFFF") }))
-    : [{ t: String(region.text ?? ""), own: false, c: paint.color || "#FFFFFF" }];
+    ? region.text.filter((p) => p && typeof p === "object").map((p) => ({ t: String(p.text ?? ""), c: parseColor(p.color, paint.color || "#FFFFFF") }))
+    : [{ t: String(region.text ?? ""), c: paint.color || "#FFFFFF" }];
   // Like the clock with its default settings: capitals unless told otherwise.
   const upper = region.textCase !== "asTyped";
   const chars = [];
-  parts.forEach((p) => Array.from(upper ? p.t.toUpperCase() : p.t).slice(0, 256).forEach((ch) => chars.push({ ch, c: p.c, own: p.own })));
-  if (paint.rainbow) chars.forEach((c, i) => { if (!c.own) c.c = hueColor((i * 360) / Math.max(chars.length, 1)); });
-  else if (paint.gradient) chars.forEach((c, i) => { if (!c.own) c.c = mixColors(paint.gradient[0], paint.gradient[1], chars.length > 1 ? i / (chars.length - 1) : 0); });
+  parts.forEach((p) => Array.from(upper ? p.t.toUpperCase() : p.t).slice(0, 256).forEach((ch) => chars.push({ ch, c: p.c })));
+  if (paint.rainbow) chars.forEach((c, i) => { c.c = hueColor((i * 360) / Math.max(chars.length, 1)); });
+  else if (paint.gradient) chars.forEach((c, i) => { c.c = mixColors(paint.gradient[0], paint.gradient[1], chars.length > 1 ? i / (chars.length - 1) : 0); });
 
   const font = FONTS[FONT_ALIASES[region.font] || region.font] || null;
-  // The small font: 3 × 5 capitals on rows 1 to 5 of an 8-pixel line.
+  // The small font: 3 × 5 capitals, from the top of the text's rows.
   const shapes = chars.map(({ ch }) => {
     if (font) return font.glyphs[ch] || font.glyphs["?"];
     const g = glyph(ch);
-    return [g[0].length + 1, 0, 1, g[0].length, g.map((row) => parseInt(row, 2))];
+    return [g[0].length + 1, 0, 0, g[0].length, g.map((row) => parseInt(row, 2))];
   });
   const ascent = font ? font.ascent : 6;
   const width = shapes.reduce((w, s) => w + s[0], 0);
   const align = region.align ?? "center", valign = region.valign ?? "center";
   const overflow = width > box.w;
+  // Centered in a room it cannot split evenly, the clock leaves the odd
+  // pixel on the left and on top (the width counts the gap after the last
+  // letter).
   let x = box.x;
-  if (!overflow && align === "center") x += Math.floor((box.w - width) / 2);
+  if (!overflow && align === "center") x += Math.ceil((box.w - width) / 2);
   else if (!overflow && align === "end") x += box.w - width;
   let y = box.y;
-  if (valign === "center") y += Math.floor((box.h - ascent) / 2);
+  if (valign === "center") y += Math.ceil((box.h - ascent) / 2);
   else if (valign === "end") y += box.h - ascent;
   shapes.forEach(([advance, gx, gy, gw, rows], i) => {
     rows.forEach((bits, ry) => {
@@ -399,7 +413,7 @@ function renderLayout(layout, result) {
     } else if (region.icon !== undefined && region.icon !== null && region.icon !== "") {
       result.icons.push({ name: String(region.icon), ...box });
     } else if (Number.isFinite(region.progress)) {
-      const lit = Math.round((Math.max(0, Math.min(100, region.progress)) / 100) * box.w);
+      const lit = Math.floor((Math.max(0, Math.min(100, region.progress)) * box.w) / 100);
       const track = parseColor(region.trackColor, "#202020");
       for (let x = 0; x < box.w; x++) for (let y = 0; y < box.h; y++) set(box.x + x, box.y + y, x < lit ? color : track);
     } else if (region.chart && typeof region.chart === "object") {
@@ -567,7 +581,7 @@ export function drawMatrix(canvas, pixels, options = {}) {
   let large = null;
   // The icon of a line app sits top left; layout icons sit in their boxes,
   // where a gallery icon is drawn at double size when the box allows it.
-  const icons = options.icon ? [{ name: options.icon, x: 0, y: 0, w: 8, h: 8, line: true }] : [];
+  const icons = options.icon ? [{ name: options.icon, x: 0, y: lineTop(rows), w: 8, h: 8, line: true }] : [];
   (options.icons || []).forEach((icon) => icons.push(icon));
   icons.forEach((place) => {
     const entry = loadIcon(place.name, () => drawMatrix(canvas, pixels, options));
@@ -582,7 +596,7 @@ export function drawMatrix(canvas, pixels, options = {}) {
     const side = big ? 16 : 8;
     const size = side * times;
     const ox = place.line ? 0 : place.x + Math.floor((place.w - size) / 2);
-    const oy = place.line ? 0 : place.y + Math.floor((place.h - size) / 2);
+    const oy = place.line ? place.y : place.y + Math.floor((place.h - size) / 2);
     const icon = big ? entry.large : iconPixels(entry);
     if (!icon) {
       overlays.push({ image: entry.image, x: ox, y: oy, size });

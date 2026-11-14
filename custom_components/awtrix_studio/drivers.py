@@ -473,8 +473,11 @@ class AwtrixNGDriver(FirmwareDriver):
     """
 
     firmware = FIRMWARE_AWTRIX_NG
-    # Commands larger than this are dropped by the clock without an answer.
-    max_payload = 8192
+    # A larger command is dropped by the clock without an answer. Its limit
+    # is 8192 bytes for the whole MQTT packet: the topic, the payload and the
+    # 5 bytes of the packet's own header, at QoS 0 (measured on firmware
+    # 1.2.3: 8187 bytes of topic and payload pass, 8188 do not).
+    max_payload = 8192 - 5
     keeps_order = True
 
     def app_topic(self, app_name: str) -> str:

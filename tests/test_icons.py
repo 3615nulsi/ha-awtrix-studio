@@ -423,7 +423,7 @@ async def test_ng_plays_animated_icons_inline(
 async def test_ng_icon_limit_counts_the_topic(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
-    """The clock's 8192 bytes include the topic: a GIF that only fits without
+    """The clock's limit includes the topic: a GIF that only fits without
     it falls back to the first image."""
     aioclient_mock.get(ICON_URL.format(id=9), content=png(frames=3))
     store = IconStore(hass)

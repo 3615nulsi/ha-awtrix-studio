@@ -272,6 +272,40 @@ def test_ng_scroll_mode_and_palette_keys() -> None:
     }
 
 
+def test_layout_palette_options_need_a_palette() -> None:
+    """Without a palette, a layout is refused with them ("needs palette")."""
+    page = {"layout": {"version": 1, "regions": [{"id": "v", "text": "1"}]}}
+    for display in (
+        {"paletteSpeed": 1.5},
+        {"paletteSpan": 20},
+        {"effect": "Plasma", "effectSettings": {"blend": False}},
+    ):
+        [out] = apply_display([page], display, "awtrix_ng")
+        assert not {"paletteSpeed", "paletteSpan", "paletteBlend"} & set(out["layout"])
+    # An app without a layout keeps them: the clock ignores them there.
+    assert apply_display([{"text": "1"}], {"paletteSpeed": 1.5}, "awtrix_ng") == [
+        {"paletteSpeed": 1.5, "text": "1"}
+    ]
+    # The palette of an effect, or the page's own, is one.
+    display = {
+        "effect": "Plasma",
+        "effectSettings": {"palette": "Lava", "blend": False},
+        "paletteSpeed": 1.5,
+    }
+    [out] = apply_display([page], display, "awtrix_ng")
+    assert out["layout"]["palette"] == "Lava"
+    assert out["layout"]["paletteBlend"] is False
+    assert out["layout"]["paletteSpeed"] == 1.5
+    own = {"layout": {**page["layout"], "palette": "Ocean"}}
+    [out] = apply_display([own], {"paletteSpan": 20}, "awtrix_ng")
+    assert out["layout"]["paletteSpan"] == 20
+    # What the template wrote is not removed.
+    written = {"layout": {**page["layout"], "paletteSpeed": 2}}
+    [out] = apply_display([written], {"paletteSpan": 20}, "awtrix_ng")
+    assert out["layout"]["paletteSpeed"] == 2
+    assert "paletteSpan" not in out["layout"]
+
+
 def test_default_icon() -> None:
     """Pages that name no icon get the default one; layouts never do."""
     pages = [
