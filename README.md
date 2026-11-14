@@ -6,16 +6,18 @@
 No automations, no blueprints, no YAML.
 Works with **AWTRIX 3** and **AWTRIX NG**: Ulanzi TC001, Ulanzi TC002 and DIY clocks.
 
-[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=3615nulsi&repository=ha-awtrix-studio&category=integration)
+[![Open your Home Assistant instance and open Awtrix Studio in the Marketplace.](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=3615nulsi&repository=ha-awtrix-studio&category=integration)
 
 [![Validate](https://github.com/3615nulsi/ha-awtrix-studio/actions/workflows/validate.yml/badge.svg)](https://github.com/3615nulsi/ha-awtrix-studio/actions/workflows/validate.yml)
 [![Tests](https://github.com/3615nulsi/ha-awtrix-studio/actions/workflows/tests.yml/badge.svg)](https://github.com/3615nulsi/ha-awtrix-studio/actions/workflows/tests.yml)
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories)
+[![Marketplace Custom](https://img.shields.io/badge/Marketplace-Custom-41BDF5.svg)](https://www.home-assistant.io/integrations/marketplace/)
 [![Downloads](https://img.shields.io/github/downloads/3615nulsi/ha-awtrix-studio/total.svg)](https://github.com/3615nulsi/ha-awtrix-studio/releases)
 
 🇫🇷 [Lire en français](README.fr.md)
 
-![The Awtrix Studio panel](https://raw.githubusercontent.com/3615nulsi/ha-awtrix-studio/main/docs/images/overview-en.png)
+![The Awtrix Studio panel, driving an Ulanzi TC002](https://raw.githubusercontent.com/3615nulsi/ha-awtrix-studio/main/docs/images/overview-en.png)
+
+<sub>The panel driving an Ulanzi TC002 (52 × 16 LEDs) on AWTRIX NG. It looks the same with a TC001, on a 32 × 8 screen.</sub>
 
 </div>
 
@@ -48,10 +50,14 @@ Awtrix Studio drives clocks running either firmware, and tells them apart by its
 
 You need Home Assistant 2025.8 or newer, the [MQTT integration](https://www.home-assistant.io/integrations/mqtt/), and a clock running [AWTRIX 3](https://blueforcer.github.io/awtrix3/) or [AWTRIX NG](https://blueforcer.github.io/awtrix-ng/), connected to the same MQTT broker. On AWTRIX NG, MQTT stays off until you switch it on in the clock's web page (**System → MQTT**).
 
-1. **Install.** Click the **Open in HACS** button above, then **Download**, and restart Home Assistant.
+1. **Install.** Click the **Marketplace** button above, then **Install**. Home Assistant tells you if it needs a restart.
    <details><summary>Without the button</summary>
 
-   In HACS, open the ⋮ menu → **Custom repositories**, add `https://github.com/3615nulsi/ha-awtrix-studio` as an **Integration**, then search for **Awtrix Studio** and download it. Or copy `custom_components/awtrix_studio` into your configuration folder by hand.
+   Go to **Settings → Marketplace**, select **Add from link**, enter `https://github.com/3615nulsi/ha-awtrix-studio` and select **Add**, then **Install**. Or copy `custom_components/awtrix_studio` into your configuration folder by hand.
+   </details>
+   <details><summary>On Home Assistant 2026.10 or older</summary>
+
+   The Marketplace arrived with Home Assistant 2026.11, where it replaces HACS. On an older version, [open Awtrix Studio in HACS](https://my.home-assistant.io/redirect/hacs_repository/?owner=3615nulsi&repository=ha-awtrix-studio&category=integration) instead (or, in HACS, ⋮ → **Custom repositories**, add the address above as an **Integration**), download it and restart Home Assistant.
    </details>
 
 2. **Add your clock.** Go to **Settings → Devices & services → Add integration → Awtrix Studio**, and enter the clock's MQTT prefix (you'll find it in the clock's MQTT settings, for example `awtrix_1f1b94`). Leave the firmware on **Detect automatically**: Awtrix Studio asks the clock, which must be on and connected to MQTT.
@@ -67,7 +73,7 @@ The top of the panel mirrors the clock's real screen. Below, each app has its ow
 
 ### Simple mode: no code at all
 
-Choose an entity, add a label, an icon and colors, and you're done. The preview updates as you type.
+Choose an entity, add a label, an icon and colors, and you're done. The preview updates as you type. Here, an outdoor temperature on a TC002, with the **Title and value** layout and a color that follows the value.
 
 ![Simple mode editor](https://raw.githubusercontent.com/3615nulsi/ha-awtrix-studio/main/docs/images/simple-en.png)
 
@@ -90,7 +96,7 @@ The app also leaves the rotation by itself while its entity is unavailable.
 
 ### Template mode: full control
 
-For anything more creative (drawings, progress bars, several pages), write a Home Assistant template that produces the clock's JSON. The preview shows each page, alternates them like the clock does, and tells you right away if something is wrong.
+For anything more creative (drawings, progress bars, several pages), write a Home Assistant template that produces the clock's JSON. The preview shows each page, alternates them like the clock does, and tells you right away if something is wrong. Here, the next two trams, one per line of a TC002.
 
 ![Template mode editor](https://raw.githubusercontent.com/3615nulsi/ha-awtrix-studio/main/docs/images/editor-en.png)
 
