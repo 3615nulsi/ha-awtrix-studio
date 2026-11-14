@@ -103,7 +103,24 @@ AWTRIX 3 (couleur en hexadécimal sans `#`), `[{"text", "color"}]` sur NG
 (`"#RRGGBB"` ou `[r, g, b]` ; un fragment sans couleur est blanc, et le
 `textColor` de l'app est ignoré sauf `"palette"`, si bien que le texte
 arc-en-ciel ou en dégradé l'emporte toujours). La barre de progression prend
-la couleur de la première entité. Les refus de l'horloge (`…/result`, et
+la couleur de la première entité. Le libellé d'une entité peut avoir sa propre
+couleur (`label_color`, stockée seulement si elle est choisie ; sans elle, le
+libellé prend la couleur de la valeur, comme avant) : le texte part alors en
+fragments, même pour une seule entité, le libellé dans sa couleur et la valeur
+(avec l'unité) dans celle de l'entité (fixe, par paliers ou en dégradé).
+Options propres à NG, stockées sous nos propres noms et retirées sur
+AWTRIX 3 : `scrollMode` (`loop` ou `bounce` ; `static` reste `noScroll`, et
+`wrap`, le défaut, n'est pas stocké), `paletteSpeed` (0 à 10) et `paletteSpan`
+(0 à 512 pixels), qui animent la palette de l'app. Le choix de la police
+(`font`) n'est pas proposé : les mises en page choisissent déjà la leur par
+zone, et sur une ligne son effet dépend de la taille de l'écran et
+d'`enlargeApps`, que l'aperçu ne sait pas montrer.
+
+Icône par défaut (mode modèle) : une app en mode modèle peut avoir une `icon`,
+ajoutée à la publication (et dans l'aperçu et le test) à chaque page qui n'a
+pas de clé `icon` ; celle du modèle l'emporte toujours. Une page avec `layout`
+n'en reçoit pas, NG refusant une `icon` à côté d'un `layout` : ses icônes sont
+des zones placées par le modèle. Les refus de l'horloge (`…/result`, et
 `event/error` pour les commandes qui nomment le topic d'une de nos apps) sont
 affichés dans le panneau, et les effets, météos et palettes sont lus sur
 `state/capabilities`. NG ignore sans répondre un message de plus de 8192
@@ -119,17 +136,24 @@ l'horloge.
 
 Mises en page (TC002) : une app simple peut choisir une mise en page (`layout`
 dans ses données) : valeur, titre et valeur, valeur et barre, ou deux entités
-sur deux lignes, l'icône restant facultative. Son modèle produit alors un
+sur deux lignes, ou valeur et heure (l'heure courante, `%H:%M`, écrite par
+le modèle avec `now()`, que Home Assistant rend de nouveau chaque minute :
+pas besoin de `sensor.time`), l'icône restant facultative. Son modèle produit alors un
 `layout` NG (des zones `[x, y, largeur, hauteur]` sur les 52 × 16 pixels), que
 l'horloge dessine en taille réelle même quand `enlargeApps` est activé. Les
 polices se choisissent parmi les plus lisibles (`value_font` et `text_font`) :
 pour la valeur, `matrix-chunky8` par défaut, `matrix-light8` ou les larges
-`matrix-chunky8x6` et `matrix-light8x6` ; pour le titre et les lignes,
-`matrix-light6` par défaut ou `matrix-chunky6`. À côté d'un `layout`, NG n'accepte
+`matrix-chunky8x6` et `matrix-light8x6` ; pour le titre, l'heure et les
+lignes, `matrix-light6` par défaut ou `matrix-chunky6`. Un libellé en couleur
+propre devient un fragment dans la zone de la valeur (le fragment de la valeur,
+sans couleur, prend celle de la zone) ; dans « titre et valeur », c'est la
+couleur du titre, gris sinon. À côté d'un `layout`, NG n'accepte
 que la durée, la répétition et la durée de vie : les autres options
 d'affichage vont dans le layout (effet, fond, météo, palette) ou dans ses zones
 de texte (casse, clignotement, fondu, défilement), et les options de placement
-sont ignorées. Une icône de la galerie dans une zone d'au moins 16 × 16 est
+sont ignorées, sauf le centrage : un texte non centré commence au début de sa
+zone (`align: "start"`, si la zone ne fixe pas le sien). L'alignement vertical
+n'est pas proposé : les zones ont la hauteur de leur police. Une icône de la galerie dans une zone d'au moins 16 × 16 est
 envoyée doublée, en GIF 16 × 16 (animé si la taille du message le permet). Une
 app avec mise en page importée sur une horloge AWTRIX 3 perd sa mise en page et
 s'affiche sur une ligne. L'aperçu dessine les mises en page avec les

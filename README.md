@@ -72,7 +72,7 @@ Choose an entity, add a label, an icon and colors, and you're done. The preview 
 | Setting | What it does |
 |---|---|
 | **Entity** | The sensor (or any entity) to show. |
-| **Label** | Optional text before the value, like `CO2`. |
+| **Label** | Optional text before the value, like `CO2`. Give it a **label color** to show it in its own color, the value keeping its own (fixed, steps or gradient); **Reset** puts it back in the value's color. In the title layout, it colors the title. |
 | **Icon** | **Pick an icon** searches the [LaMetric gallery](https://developer.lametric.com/icons); Awtrix Studio sends it with the app (animated icons are stored on the clock automatically, so that they play). Typing an icon's number works too, and a file of the clock with that name wins. You can also type the name of an icon stored on the clock. |
 | **Text color** | The default color. |
 | **Decimals** | Round the value, or leave empty to show it as is. |
@@ -81,7 +81,7 @@ Choose an entity, add a label, an icon and colors, and you're done. The preview 
 | **Hide when the value is 0** | Handy for solar production at night. |
 | **Progress bar** | A bar at the bottom of the screen, from the app's entity or another one, empty and full at the values you choose. It can follow the text color. |
 | **Add an entity** | Shows several entities on the same line, like `UP 750 DN 30`. Each one has its own label, decimals, unit and color (fixed, steps or gradient); a tab per entity switches between them, and a **separator** goes between two. An entity without a value leaves the line, and the app leaves the rotation when none is left. |
-| **Layout** (TC002 on AWTRIX NG) | Draws the app on all 52 × 16 LEDs, one LED per pixel, instead of one line at double size: **Value**, **Title and value** (the label in small letters above), **Value and progress bar**, or **Two entities, one per line**. The icon is optional; a gallery icon is drawn at 16 × 16 there. You pick the fonts among those that stay legible: an 8-pixel font for the value (bold by default, light, or wide for a short value), and a 6-pixel font for the title or the lines (light by default, or bold). |
+| **Layout** (TC002 on AWTRIX NG) | Draws the app on all 52 × 16 LEDs, one LED per pixel, instead of one line at double size: **Value**, **Title and value** (the label in small letters above), **Value and progress bar**, **Two entities, one per line**, or **Value and time** (the current time, 24-hour, in small letters above the value: no time sensor needed). The icon is optional; a gallery icon is drawn at 16 × 16 there. You pick the fonts among those that stay legible: an 8-pixel font for the value (bold by default, light, or wide for a short value), and a 6-pixel font for the title, the time or the lines (light by default, or bold). Unticking **Center a short text** in the display options starts the text at the left of its box. |
 | **Color according to the value** | **Fixed**, **steps** (up to two thresholds, each with its color), or a **gradient**: pick a ready-made one (*the higher, the worse*, *the lower, the worse*, *best in the middle*, *cold → hot*) and set its range, or make your own with 2 to 5 points. For temperatures, CO2, humidity or batteries, a sensible range is suggested. |
 
 The app also leaves the rotation by itself while its entity is unavailable.
@@ -96,7 +96,7 @@ Started in simple mode and want to go further? **Convert to template mode** open
 
 ### Display options
 
-Every app, in either mode, has a **Display** section for the rest of the AWTRIX app settings: how long it stays on screen, how many times a long text scrolls, scroll speed, what the icon does while the text scrolls, capitals, centering, text at the top, a rainbow or two-color gradient text, blinking or fading text, a background color, one of the clock's 19 background effects (with its speed, palette and blending), a weather overlay (snow, rain, storm…), and whether the clock keeps the app after it restarts. Leave a setting alone and the clock's own setting applies. In template mode they are defaults: a key your template sets itself wins. On AWTRIX NG, the effects, overlays and palettes offered are the ones the clock announces, the effect speed is a multiplier (2 is twice as fast), and the rainbow or gradient text shares the app's single palette with the background effect.
+Every app, in either mode, has a **Display** section for the rest of the AWTRIX app settings: how long it stays on screen, how many times a long text scrolls, scroll speed, what the icon does while the text scrolls, capitals, centering, text at the top, a rainbow or two-color gradient text, blinking or fading text, a background color, one of the clock's 19 background effects (with its speed, palette and blending), a weather overlay (snow, rain, storm…), and whether the clock keeps the app after it restarts. Leave a setting alone and the clock's own setting applies. In template mode they are defaults: a key your template sets itself wins. On AWTRIX NG, the effects, overlays and palettes offered are the ones the clock announces, the effect speed is a multiplier (2 is twice as fast), and the rainbow or gradient text shares the app's single palette with the background effect. AWTRIX NG also offers how a long text moves (scrolls and starts again, never scrolls, scrolls in a continuous loop, or goes back and forth), and the palette's **speed** and **span**, which make a rainbow or gradient text, or the effect, move.
 
 ### Order of the apps
 
@@ -192,6 +192,8 @@ Blue while exporting, green to red while importing. Simple mode gets close with 
 </details>
 
 Every key of the clock's API works: the [AWTRIX 3 custom apps](https://blueforcer.github.io/awtrix3/#/api?id=custom-apps-and-notifications) (`text`, `color`, `icon`, `draw`, `progress`, `blinkText`, `effect`…) or the [AWTRIX NG pushed apps](https://github.com/Blueforcer/awtrix-ng/blob/main/docs/reference/payload.md) (`text`, `textColor`, `icon`, `draw`, `progress`, `textBlinkMs`, `effect`…). Write `"icon": "2422"` to use an icon of the LaMetric gallery without uploading it to the clock (a file of the clock named `2422` wins; `"lametric:2422"` always takes the gallery's).
+
+Each page can set its own `icon`. A template app can also have a **default icon**, chosen with the same picker as in simple mode: it is given to every page that sets no `icon` itself (a page's own icon always wins). AWTRIX NG layout pages (`"layout": {…}`) get none, since the clock takes no icon next to a layout: place it in an `icon` region.
 
 ## ❓ FAQ
 

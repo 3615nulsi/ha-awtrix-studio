@@ -418,3 +418,60 @@ async def test_layouts_become_lines_on_awtrix3(
     stored = {s.title: dict(s.data) for s in source.subentries.values()}
     assert "layout" not in stored["two"]
     assert stored["two"]["segments"][0]["entity_id"] == "sensor.temp"
+
+
+async def test_label_color_and_default_icon_travel(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    mqtt_mock: MqttMockHAClient,
+) -> None:
+    """A label color and a template app's default icon survive a round trip."""
+    hass.states.async_set("sensor.co2", "950")
+    hass.states.async_set("sensor.temp", "21")
+    template_app = {**TEMPLATE_APP, "icon": "sun"}
+    simple_app = {
+        **SIMPLE_APP,
+        "label": "CO2",
+        "label_color": [0, 170, 255],
+        "segments": [
+            {
+                "entity_id": "sensor.temp",
+                "label": "T",
+                "label_color": [255, 0, 0],
+                "color": [255, 255, 255],
+                "show_unit": True,
+                "hide_when_zero": False,
+                "color_mode": "fixed",
+            }
+        ],
+        "separator": " ",
+    }
+    source = await _clock(
+        hass,
+        PREFIX,
+        [
+            _subentry(template_app, "app", "s_demo"),
+            _subentry(simple_app, "app", "s_co2"),
+        ],
+    )
+    client = await hass_ws_client(hass)
+    doc = await _ws(
+        client, {"type": "awtrix_studio/export", "entry_id": source.entry_id}
+    )
+    assert doc["items"][0]["icon"] == "sun"
+    assert doc["items"][1]["label_color"] == [0, 170, 255]
+    target = await _clock(hass, "awtrix_other", [])
+    result = await _ws(
+        client,
+        {"type": "awtrix_studio/import", "entry_id": target.entry_id, "document": doc},
+    )
+    assert result["imported"] == 2
+    await hass.async_block_till_done()
+    imported = {s.title: dict(s.data) for s in target.subentries.values()}
+    assert imported == {"demo": template_app, "co2": simple_app}
+    payloads = [
+        c.args[1]
+        for c in mqtt_mock.async_publish.call_args_list
+        if c.args[0] == "awtrix_other/custom/demo"
+    ]
+    assert json.loads(payloads[-1]) == {"text": "21", "icon": "sun"}

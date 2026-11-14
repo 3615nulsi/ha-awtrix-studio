@@ -49,7 +49,7 @@ from .const import (
     SUBENTRY_TYPE_APP,
     SUBENTRY_TYPE_INDICATOR,
 )
-from .display import CONF_DISPLAY, apply_display
+from .display import CONF_DISPLAY, apply_display, default_icon
 from .drivers import Screen
 from .icons import IconError, IconStore, convert, large_pixels
 from .loop import MAX_APP_NAME, MAX_LOOP, clean_order
@@ -413,7 +413,10 @@ def ws_preview(
             pages = pages[:1]
         else:
             pages = apply_display(
-                pages, data.get(CONF_DISPLAY), entry.data[CONF_FIRMWARE]
+                pages,
+                data.get(CONF_DISPLAY),
+                entry.data[CONF_FIRMWARE],
+                icon=default_icon(data),
             )
         send({"pages": pages, "error": None, "template": generated})
 
@@ -550,7 +553,12 @@ async def ws_test(
         pages = parse_pages(
             Template(_build_template(entry, kind, data), hass).async_render()
         )
-        pages = apply_display(pages, data.get(CONF_DISPLAY), entry.data[CONF_FIRMWARE])
+        pages = apply_display(
+            pages,
+            data.get(CONF_DISPLAY),
+            entry.data[CONF_FIRMWARE],
+            icon=default_icon(data),
+        )
     except Invalid as err:
         connection.send_result(
             msg["id"], {"errors": {err.field: err.key}, "detail": err.detail}

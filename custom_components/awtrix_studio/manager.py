@@ -33,7 +33,7 @@ from .const import (
     SUBENTRY_TYPE_APP,
     SUBENTRY_TYPE_INDICATOR,
 )
-from .display import CONF_DISPLAY
+from .display import CONF_DISPLAY, default_icon
 from .drivers import DisplayInfo, FirmwareDriver, LoopState, Screen
 from .icons import IconStore
 from .live_app import AppConfig, LiveApp
@@ -107,6 +107,7 @@ def app_config_from_subentry(subentry: ConfigSubentry, firmware: str) -> AppConf
         or bool(data.get(CONF_HIDE_WHEN_EMPTY, DEFAULT_HIDE_WHEN_EMPTY)),
         lifetime=int(data.get(CONF_LIFETIME, DEFAULT_LIFETIME)),
         display=dict(data.get(CONF_DISPLAY) or {}),
+        icon=default_icon(data),
     )
 
 

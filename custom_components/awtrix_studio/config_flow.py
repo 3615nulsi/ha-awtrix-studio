@@ -60,6 +60,7 @@ from .const import (
     CONF_ICON,
     CONF_INDICATOR,
     CONF_LABEL,
+    CONF_LABEL_COLOR,
     CONF_LAYOUT,
     CONF_LIFETIME,
     CONF_MODE,
@@ -411,6 +412,16 @@ class _LiveSubentryFlow(ConfigSubentryFlow):
                 CONF_SEGMENTS: self._current[CONF_SEGMENTS],
                 CONF_SEPARATOR: self._current.get(CONF_SEPARATOR, DEFAULT_SEPARATOR),
             }
+        # So are the color of the first entity's label, and a template app's
+        # default icon.
+        if data.get(CONF_MODE) == MODE_SIMPLE and CONF_LABEL_COLOR in self._current:
+            data = {**data, CONF_LABEL_COLOR: self._current[CONF_LABEL_COLOR]}
+        if (
+            data.get(CONF_MODE) == MODE_TEMPLATE
+            and self._current.get(CONF_MODE) == MODE_TEMPLATE
+            and self._current.get(CONF_ICON)
+        ):
+            data = {**data, CONF_ICON: self._current[CONF_ICON]}
         return self.async_update_and_abort(
             self._get_entry(), self._get_reconfigure_subentry(), data=data
         )

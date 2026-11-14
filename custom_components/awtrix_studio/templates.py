@@ -34,6 +34,7 @@ from .const import (
     CONF_HIDE_WHEN_ZERO,
     CONF_ICON,
     CONF_LABEL,
+    CONF_LABEL_COLOR,
     CONF_LAYOUT,
     CONF_PROGRESS,
     CONF_PROGRESS_BG,
@@ -65,6 +66,7 @@ from .const import (
     LAYOUT_TITLE_VALUE,
     LAYOUT_TWO_LINES,
     LAYOUT_VALUE_BAR,
+    LAYOUT_VALUE_TIME,
     LAYOUTS,
     TEXT_FONTS,
     VALUE_FONTS,
@@ -107,6 +109,9 @@ DISPLAY_WIDTH = 52
 ICON_BOX = [0, 0, 16, 16]
 TEXT_X = 17
 TITLE_COLOR = "#969696"
+# The current time of the "value and time" layout, 24-hour, rendered by Home
+# Assistant (which renders a template using now() again every minute).
+TIME_TEXT = 'now().strftime("%H:%M")'
 
 
 def _font(options: Mapping[str, Any], key: str, fonts: Sequence[str]) -> str:
@@ -195,6 +200,45 @@ def _gradient_lines(options: Mapping[str, Any]) -> list[str]:
         raise InvalidSimpleOptionsError(str(err)) from err
 
 
+def _label_color(options: Mapping[str, Any]) -> str | None:
+    """The label's own color as `#RRGGBB`, when the entity shows a label.
+
+    Without one, the label is written with the value, in the value's color.
+    """
+    if not str(options.get(CONF_LABEL) or "").strip():
+        return None
+    color = options.get(CONF_LABEL_COLOR)
+    if color is None or color in ("", []):
+        return None
+    return rgb_to_hex(color, DEFAULT_COLOR)
+
+
+# Each firmware has its own text fragments. AWTRIX 3 takes `{"t", "c"}` and
+# reads the color as bare hex digits, without the "#" (a color from a
+# gradient is an RGB list). AWTRIX NG takes `{"text", "color"}`, with
+# "#RRGGBB" or an RGB list, as both come.
+def _fragment(firmware: str, text: str, color: str) -> str:
+    """A text fragment, as Jinja: `text` and `color` are expressions."""
+    if firmware == FIRMWARE_AWTRIX_NG:
+        return f'{{"text": {text}, "color": {color}}}'
+    return f'{{"t": {text}, "c": {color}}}'
+
+
+def _fragment_color(firmware: str, color: str = "color") -> str:
+    """A color variable (`#RRGGBB` or an RGB list) as the firmware reads it."""
+    if firmware == FIRMWARE_AWTRIX_NG:
+        return color
+    return (
+        f'({color}[1:] if {color} is string else "%02X%02X%02X"'
+        f" | format({color}[0], {color}[1], {color}[2]))"
+    )
+
+
+def _fixed_color(firmware: str, color: str) -> str:
+    """A `#RRGGBB` color known in advance, as a fragment color literal."""
+    return jinja_str(color if firmware == FIRMWARE_AWTRIX_NG else color[1:])
+
+
 def app_segments(options: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     """The entities of a simple app: its own first, then the next segments."""
     extra = options.get(CONF_SEGMENTS) or []
@@ -224,7 +268,17 @@ def build_app_template(
         lines += ["{%- elif num is not none and num == 0 -%}", "[]"]
     lines.append("{%- else -%}")
     lines += _text_lines(options)
-    lines += _payload_lines(options, entity, keys, "text")
+    label_color = _label_color(options)
+    if label_color is None:
+        lines += _payload_lines(options, entity, keys, "text")
+        return "\n".join(lines)
+    # A label in its own color: the text is sent as two fragments, and each
+    # brings its color.
+    parts = (
+        f"[{_fragment(firmware, 'label', _fixed_color(firmware, label_color))},"
+        f" {_fragment(firmware, 'text', _fragment_color(firmware))}]"
+    )
+    lines += _payload_lines(options, entity, keys, parts, with_color=False)
     return "\n".join(lines)
 
 
@@ -239,24 +293,22 @@ def _build_line_template(options: Mapping[str, Any], firmware: str) -> str:
     separator = options.get(CONF_SEPARATOR)
     if not isinstance(separator, str):
         separator = DEFAULT_SEPARATOR
-    # Each firmware has its own text fragments. AWTRIX 3 takes `{"t", "c"}`
-    # and reads the color as bare hex digits, without the "#" (a color from a
-    # gradient is an RGB list). AWTRIX NG takes `{"text", "color"}`, with
-    # "#RRGGBB" or an RGB list, as both come.
-    if firmware == FIRMWARE_AWTRIX_NG:
-        text_key, color_key, fragment_color = "text", "color", "color"
-    else:
-        text_key, color_key = "t", "c"
-        fragment_color = (
-            '(color[1:] if color is string else "%02X%02X%02X"'
-            " | format(color[0], color[1], color[2]))"
-        )
+    gap = f'({jinja_str(separator)} if parts else "")'
     lines = [HEADER, "{%- set parts = [] -%}"]
     for number, segment in enumerate(segments, 1):
         entity = _entity_id(segment.get(CONF_ENTITY_ID))
         shown = "raw not in ['unknown', 'unavailable', '']"
         if segment.get(CONF_HIDE_WHEN_ZERO, False):
             shown += " and not (num is not none and num == 0)"
+        value = _fragment(firmware, "text", _fragment_color(firmware))
+        if (label_color := _label_color(segment)) is None:
+            added = _fragment(firmware, f"{gap} ~ text", _fragment_color(firmware))
+        else:
+            # The label in its own color, then the value in the entity's.
+            label = _fragment(
+                firmware, f"{gap} ~ label", _fixed_color(firmware, label_color)
+            )
+            added = f"{label}, {value}"
         lines += [
             f"{{#- Entity {number}: {entity} -#}}",
             f"{{%- set raw = states({jinja_str(entity)}) -%}}",
@@ -264,8 +316,7 @@ def _build_line_template(options: Mapping[str, Any], firmware: str) -> str:
             f"{{%- if {shown} -%}}",
             *_text_lines(segment),
             "{%- if not parts -%}{%- set first = color -%}{%- endif -%}",
-            f'{{%- set parts = parts + [{{"{text_key}": ({jinja_str(separator)}'
-            f' if parts else "") ~ text, "{color_key}": {fragment_color}}}] -%}}',
+            f"{{%- set parts = parts + [{added}] -%}}",
             "{%- endif -%}",
         ]
     lines += ["{%- if not parts -%}", "[]", "{%- else -%}"]
@@ -299,8 +350,8 @@ def _build_layout_template(options: Mapping[str, Any]) -> str:
     """An app drawn on the whole display of a TC002, in boxes (AWTRIX NG).
 
     The icon sits on the left when there is one. Then, by layout: the value
-    alone, a title above the value, the value above a progress bar, or two
-    entities, one per line.
+    alone, a title above the value, the value above a progress bar, two
+    entities, one per line, or the current time above the value.
     """
     layout = options[CONF_LAYOUT]
     icon = str(options.get(CONF_ICON) or "").strip()
@@ -329,20 +380,34 @@ def _build_layout_template(options: Mapping[str, Any]) -> str:
     lines += _text_lines(options, with_label=layout != LAYOUT_TITLE_VALUE)
 
     value_box = _box(x, 0, width, 16)
+    label_color = _label_color(options)
     if layout == LAYOUT_TITLE_VALUE and title:
         title_region = _text_region(
             "title",
             _box(x, 0, width, 7),
             jinja_str(title),
             _font(options, CONF_TEXT_FONT, TEXT_FONTS),
-            jinja_str(TITLE_COLOR),
+            jinja_str(label_color or TITLE_COLOR),
         )
         regions = f"{regions} + [{title_region}]"
+        value_box = _box(x, 8, width, 8)
+    elif layout == LAYOUT_VALUE_TIME:
+        # The time on top, small, like a title; the value below.
+        time_region = _text_region(
+            "time",
+            _box(x, 0, width, 7),
+            TIME_TEXT,
+            _font(options, CONF_TEXT_FONT, TEXT_FONTS),
+            jinja_str(TITLE_COLOR),
+        )
+        regions = f"{regions} + [{time_region}]"
         value_box = _box(x, 8, width, 8)
     elif layout == LAYOUT_VALUE_BAR:
         value_box = _box(x, 0, width, 11)
     value_font = _font(options, CONF_VALUE_FONT, VALUE_FONTS)
-    value = _text_region("value", value_box, "text", value_font, "color")
+    # The title layout shows the label apart, above: the value is alone.
+    text = "text" if layout == LAYOUT_TITLE_VALUE else _layout_text(options)
+    value = _text_region("value", value_box, text, value_font, "color")
     lines.append(f"{{%- set regions = {regions} + [{value}] -%}}")
     if layout == LAYOUT_VALUE_BAR:
         lines += _bar_lines(options, entity, _box(x, 12, width, 3))
@@ -351,6 +416,17 @@ def _build_layout_template(options: Mapping[str, Any]) -> str:
         "{%- endif -%}",
     ]
     return "\n".join(lines)
+
+
+def _layout_text(options: Mapping[str, Any]) -> str:
+    """The text of a layout line: a label in its own color makes it fragments.
+
+    A fragment without a color takes the region's, the value's color.
+    """
+    label_color = _label_color(options)
+    if label_color is None:
+        return "text"
+    return f'[{{"text": label, "color": {jinja_str(label_color)}}}, {{"text": text}}]'
 
 
 def _two_lines(
@@ -369,7 +445,8 @@ def _two_lines(
             "{%- set num = raw | float if raw | is_number else none -%}",
             f"{{%- if {shown} -%}}",
             *_text_lines(segment),
-            '{%- set parts = parts + [{"t": text, "c": color}] -%}',
+            f'{{%- set parts = parts + [{{"t": {_layout_text(segment)},'
+            ' "c": color}] -%}',
             "{%- endif -%}",
         ]
     value_font = _font(options, CONF_VALUE_FONT, VALUE_FONTS)
@@ -461,9 +538,14 @@ def _text_lines(options: Mapping[str, Any], *, with_label: bool = True) -> list[
         rounded = f"num | round({int(decimals)})"
         lines.append(f"{{%- set value = {rounded} if num is not none else raw -%}}")
 
+    # A label in its own color is kept apart, as `label`, to be sent as a
+    # fragment of its own; otherwise it starts the text.
+    apart = with_label and _label_color(options) is not None
     text = "value | string"
-    if label and with_label:
+    if label and with_label and not apart:
         text = f"{jinja_str(label + ' ')} ~ value"
+    if apart:
+        lines.append(f"{{%- set label = {jinja_str(label + ' ')} -%}}")
     if show_unit:
         custom_unit = str(options.get(CONF_UNIT) or "").strip()
         unit = (

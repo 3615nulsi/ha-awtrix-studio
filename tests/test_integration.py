@@ -646,3 +646,67 @@ async def test_gradient_indicator_flow(
     assert [json.loads(p) for p in published(mqtt_mock, f"{PREFIX}/indicator2")] == [
         {"color": [255, 0, 0]}
     ]
+
+
+async def test_subentry_reconfigure_keeps_panel_only_settings(
+    hass: HomeAssistant, mqtt_mock: MqttMockHAClient
+) -> None:
+    """A template app's default icon and a label color survive the HA form."""
+    hass.states.async_set("sensor.up", "750")
+    simple = {
+        "mode": "simple",
+        "app_name": "net",
+        "entity_id": "sensor.up",
+        "label": "UP",
+        "label_color": [255, 0, 0],
+    }
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title=PREFIX,
+        unique_id=PREFIX,
+        data={"firmware": "awtrix3", "prefix": PREFIX},
+        subentries_data=[
+            ConfigSubentryDataWithId(
+                data={**APP_DATA, "mode": "template", "icon": "sun"},
+                subentry_id="app_demo",
+                subentry_type="app",
+                title="demo",
+                unique_id="demo",
+            ),
+            ConfigSubentryDataWithId(
+                data=simple,
+                subentry_id="app_net",
+                subentry_type="app",
+                title="net",
+                unique_id="net",
+            ),
+        ],
+    )
+    await setup_entry(hass, entry)
+    assert json.loads(published(mqtt_mock)[-1]) == {"text": "a", "icon": "sun"}
+
+    result = await entry.start_subentry_reconfigure_flow(hass, "app_demo")
+    new_data = {k: v for k, v in APP_DATA.items() if k != "app_name"}
+    new_data["template"] = '{"text": "edited"}'
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], new_data
+    )
+    assert result["reason"] == "reconfigure_successful"
+    await hass.async_block_till_done()
+    assert entry.subentries["app_demo"].data["icon"] == "sun"
+    assert json.loads(published(mqtt_mock)[-1]) == {"text": "edited", "icon": "sun"}
+
+    result = await entry.start_subentry_reconfigure_flow(hass, "app_net")
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {"next_step_id": "simple"}
+    )
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"],
+        {"entity_id": "sensor.up", "label": "U", "color": [0, 255, 0]},
+    )
+    assert result["reason"] == "reconfigure_successful"
+    await hass.async_block_till_done()
+    assert entry.subentries["app_net"].data["label_color"] == [255, 0, 0]
+    assert json.loads(published(mqtt_mock, f"{PREFIX}/custom/net")[-1]) == {
+        "text": [{"t": "U ", "c": "FF0000"}, {"t": "750", "c": "00FF00"}]
+    }

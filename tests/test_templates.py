@@ -405,3 +405,139 @@ def test_line_rejects_unsafe_entities() -> None:
     """The next entities are checked like the first one."""
     with pytest.raises(InvalidSimpleOptionsError):
         build_app_template({**LINE, "segments": [{"entity_id": "x') }}"}]})
+
+
+# ---------------------------------------------------------------- label color
+
+
+async def test_label_color(hass: HomeAssistant) -> None:
+    """A label in its own color: two fragments, the value in its color."""
+    hass.states.async_set("sensor.t", "21.46", {"unit_of_measurement": "°C"})
+    options = {
+        "entity_id": "sensor.t",
+        "label": "In",
+        "label_color": [0, 170, 255],
+        "decimals": 1,
+        "icon": "2422",
+        "color_mode": "steps",
+        "color": [255, 255, 255],
+        "threshold_1": 20,
+        "color_1": [255, 0, 0],
+    }
+    assert render(hass, build_app_template(options)) == [
+        {
+            "text": [{"t": "In ", "c": "00AAFF"}, {"t": "21.5°C", "c": "FF0000"}],
+            "icon": "2422",
+        }
+    ]
+    assert render(hass, build_app_template(options, "awtrix_ng")) == [
+        {
+            "text": [
+                {"text": "In ", "color": "#00AAFF"},
+                {"text": "21.5°C", "color": "#FF0000"},
+            ],
+            "icon": "2422",
+        }
+    ]
+    # Without a label, or without a color, the text stays one string.
+    for changed in ({"label": ""}, {"label_color": None}, {"label_color": ""}):
+        page = render(hass, build_app_template({**options, **changed}))[0]
+        assert isinstance(page["text"], str)
+        assert page["color"] == "#FF0000"
+
+
+async def test_label_color_with_gradient_and_progress(hass: HomeAssistant) -> None:
+    """A gradient color is converted per firmware; the bar keeps the value's."""
+    hass.states.async_set("sensor.p", "100")
+    options = {
+        "entity_id": "sensor.p",
+        "label": "P",
+        "label_color": "#00ff00",
+        "color_mode": "gradient",
+        "gradient": "custom",
+        "gradient_stops": [
+            {"value": 0, "color": [0, 0, 255]},
+            {"value": 100, "color": [255, 0, 0]},
+        ],
+        "progress": True,
+    }
+    [page] = render(hass, build_app_template(options))
+    assert page["text"] == [{"t": "P ", "c": "00FF00"}, {"t": "100", "c": "FF0000"}]
+    assert (page["progress"], page["progressC"]) == (100, [255, 0, 0])
+    [page] = render(hass, build_app_template(options, "awtrix_ng"))
+    assert page["text"] == [
+        {"text": "P ", "color": "#00FF00"},
+        {"text": "100", "color": [255, 0, 0]},
+    ]
+    assert page["progressColor"] == [255, 0, 0]
+
+
+async def test_label_color_on_a_line(hass: HomeAssistant) -> None:
+    """On a line, each label in its own color sits before its value."""
+    hass.states.async_set("sensor.up", "750", {})
+    hass.states.async_set("sensor.down", "30", {})
+    options = {
+        **LINE,
+        "label_color": [255, 255, 0],
+        "segments": [{**LINE["segments"][0], "label_color": "#FF00FF"}],
+        "separator": " | ",
+    }
+    assert render(hass, build_app_template(options))[0]["text"] == [
+        {"t": "UP ", "c": "FFFF00"},
+        {"t": "750", "c": "00FF00"},
+        {"t": " | DN ", "c": "FF00FF"},
+        {"t": "30", "c": "FFFFFF"},
+    ]
+    assert render(hass, build_app_template(options, "awtrix_ng"))[0]["text"] == [
+        {"text": "UP ", "color": "#FFFF00"},
+        {"text": "750", "color": "#00FF00"},
+        {"text": " | DN ", "color": "#FF00FF"},
+        {"text": "30", "color": "#FFFFFF"},
+    ]
+    # The first entity gone, the second's label needs no separator.
+    hass.states.async_set("sensor.up", "unknown", {})
+    assert render(hass, build_app_template(options))[0]["text"] == [
+        {"t": "DN ", "c": "FF00FF"},
+        {"t": "30", "c": "FFFFFF"},
+    ]
+
+
+@pytest.mark.parametrize("payload", INJECTIONS)
+@pytest.mark.parametrize("firmware", ["awtrix3", "awtrix_ng"])
+async def test_colored_label_is_never_executed(
+    hass: HomeAssistant, payload: str, firmware: str
+) -> None:
+    """A label in its own color ends up verbatim too, alone or on a line."""
+    hass.states.async_set("sensor.value", "1")
+    options = {
+        "entity_id": "sensor.value",
+        "label": payload,
+        "label_color": "#FF0000",
+        "segments": [],
+    }
+    text_key = "text" if firmware == "awtrix_ng" else "t"
+    page = render(hass, build_app_template(options, firmware))[0]
+    assert page["text"][0][text_key] == f"{payload.strip()} "
+    options["segments"] = [{**options, "segments": None}]
+    page = render(hass, build_app_template(options, firmware))[0]
+    assert [p[text_key] for p in page["text"]] == [
+        f"{payload.strip()} ",
+        "1",
+        f" {payload.strip()} ",
+        "1",
+    ]
+
+
+@pytest.mark.parametrize(
+    "color", ['#FFF" }}{{ 7*7 }}', "red", [1, 2], ["a", 2, 3], 42, "#GGGGGG"]
+)
+async def test_invalid_label_color_falls_back(
+    hass: HomeAssistant, color: object
+) -> None:
+    """A label color that is not a color never reaches the template as typed."""
+    hass.states.async_set("sensor.value", "1")
+    template = build_app_template(
+        {"entity_id": "sensor.value", "label": "L", "label_color": color}
+    )
+    assert "7*7" not in template
+    assert render(hass, template)[0]["text"][0] == {"t": "L ", "c": "FFFFFF"}

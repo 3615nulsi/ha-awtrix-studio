@@ -55,6 +55,8 @@ class AppConfig:
     single_page: bool = False
     # Display options, added to every page unless the page sets them.
     display: Mapping[str, Any] = field(default_factory=dict)
+    # Icon given to the pages that name none (template apps).
+    icon: str | None = None
 
 
 class LiveApp:
@@ -271,7 +273,9 @@ class LiveApp:
 
         if self.config.single_page:
             pages = pages[:1]
-        pages = apply_display(pages, self.config.display, self.driver.firmware)
+        pages = apply_display(
+            pages, self.config.display, self.driver.firmware, icon=self.config.icon
+        )
         if self.config.lifetime > 0:
             pages = [self.driver.with_lifetime(p, self.config.lifetime) for p in pages]
         self._pages = [serialize_page(p) for p in pages]

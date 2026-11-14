@@ -43,6 +43,7 @@ from .const import (
     CONF_ICON,
     CONF_INDICATOR,
     CONF_LABEL,
+    CONF_LABEL_COLOR,
     CONF_LAYOUT,
     CONF_LIFETIME,
     CONF_MODE,
@@ -284,6 +285,9 @@ def _segment(data: Mapping[str, Any]) -> dict[str, Any]:
         CONF_SHOW_UNIT: _bool(data, CONF_SHOW_UNIT, True),
         CONF_HIDE_WHEN_ZERO: _bool(data, CONF_HIDE_WHEN_ZERO, False),
     }
+    # Only kept when chosen: the label takes the value's color otherwise.
+    if (label_color := _color(data, CONF_LABEL_COLOR, None)) is not None:
+        clean[CONF_LABEL_COLOR] = label_color
     decimals = _number(data, CONF_DECIMALS, 0, 4)
     if decimals is not None:
         clean[CONF_DECIMALS] = int(decimals)
@@ -325,7 +329,8 @@ def _segments(data: Mapping[str, Any]) -> dict[str, Any]:
 def _layout(data: Mapping[str, Any], firmware: str, segments: int) -> dict[str, Any]:
     """The layout of a simple app on a TC002, if it has one.
 
-    Two lines show exactly two entities, the other layouts one.
+    Two lines show exactly two entities, the other layouts one (the value
+    and time layout shows the time next to its one entity).
     """
     layout = data.get(CONF_LAYOUT)
     if layout in (None, ""):
@@ -425,7 +430,7 @@ def normalize_app(
         clean.update(_display(data, entry.data[CONF_FIRMWARE]))
         return clean
 
-    return {
+    clean = {
         CONF_MODE: MODE_TEMPLATE,
         CONF_APP_NAME: name,
         CONF_TEMPLATE: _raw_template(data) if preview else _template(hass, data),
@@ -444,6 +449,10 @@ def normalize_app(
         ),
         **_display(data, entry.data[CONF_FIRMWARE]),
     }
+    # A default icon for the pages that name none; only kept when chosen.
+    if icon := _text(data, CONF_ICON):
+        clean[CONF_ICON] = icon
+    return clean
 
 
 def normalize_indicator(
