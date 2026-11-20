@@ -295,7 +295,7 @@ Rapports de bugs, idées et pull requests sont les bienvenus dans les [issues](h
 
 Si Awtrix Studio vous est utile, vous pouvez m'offrir un café :
 
-<a href="https://buymeacoffee.com/3615nulsi"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="40"></a>
+<a href="https://buymeacoffee.com/3615nulsi"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="60"></a>
 
 ---
 

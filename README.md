@@ -295,7 +295,7 @@ Bug reports, ideas and pull requests are welcome in the [issues](https://github.
 
 If Awtrix Studio is useful to you, you can buy me a coffee:
 
-<a href="https://buymeacoffee.com/3615nulsi"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="40"></a>
+<a href="https://buymeacoffee.com/3615nulsi"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="60"></a>
 
 ---
 
