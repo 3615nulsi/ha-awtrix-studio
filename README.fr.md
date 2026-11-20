@@ -12,6 +12,7 @@ Compatible **AWTRIX 3** et **AWTRIX NG** : Ulanzi TC001, Ulanzi TC002 et horloge
 [![Tests](https://github.com/3615nulsi/ha-awtrix-studio/actions/workflows/tests.yml/badge.svg)](https://github.com/3615nulsi/ha-awtrix-studio/actions/workflows/tests.yml)
 [![Marketplace Custom](https://img.shields.io/badge/Marketplace-Custom-41BDF5.svg)](https://www.home-assistant.io/integrations/marketplace/)
 [![Téléchargements](https://img.shields.io/github/downloads/3615nulsi/ha-awtrix-studio/total.svg?label=t%C3%A9l%C3%A9chargements)](https://github.com/3615nulsi/ha-awtrix-studio/releases)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/3615nulsi)
 
 🇺🇸 [Read in English](README.md)
 
@@ -289,6 +290,12 @@ Les apps sont renvoyées automatiquement, de même quand MQTT se reconnecte. Les
 ## 🤝 Contribuer
 
 Rapports de bugs, idées et pull requests sont les bienvenus dans les [issues](https://github.com/3615nulsi/ha-awtrix-studio/issues). Publié sous [licence MIT](LICENSE).
+
+## ☕ Soutenir le projet
+
+Si Awtrix Studio vous est utile, vous pouvez m'offrir un café :
+
+<a href="https://buymeacoffee.com/3615nulsi"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="40"></a>
 
 ---
 

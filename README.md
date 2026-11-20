@@ -12,6 +12,7 @@ Works with **AWTRIX 3** and **AWTRIX NG**: Ulanzi TC001, Ulanzi TC002 and DIY cl
 [![Tests](https://github.com/3615nulsi/ha-awtrix-studio/actions/workflows/tests.yml/badge.svg)](https://github.com/3615nulsi/ha-awtrix-studio/actions/workflows/tests.yml)
 [![Marketplace Custom](https://img.shields.io/badge/Marketplace-Custom-41BDF5.svg)](https://www.home-assistant.io/integrations/marketplace/)
 [![Downloads](https://img.shields.io/github/downloads/3615nulsi/ha-awtrix-studio/total.svg)](https://github.com/3615nulsi/ha-awtrix-studio/releases)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/3615nulsi)
 
 🇫🇷 [Lire en français](README.fr.md)
 
@@ -289,6 +290,12 @@ Apps are sent again automatically, as well as when MQTT reconnects. Requests tha
 ## 🤝 Contributing
 
 Bug reports, ideas and pull requests are welcome in the [issues](https://github.com/3615nulsi/ha-awtrix-studio/issues). Released under the [MIT license](LICENSE).
+
+## ☕ Support the project
+
+If Awtrix Studio is useful to you, you can buy me a coffee:
+
+<a href="https://buymeacoffee.com/3615nulsi"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="40"></a>
 
 ---
 
