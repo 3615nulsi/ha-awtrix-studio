@@ -555,7 +555,7 @@ const STRINGS = {
     discard: "Abandonner",
     discard_confirm: "Des modifications ne sont pas enregistrées. Quitter sans enregistrer ?",
     saved_toast: "Enregistré.",
-    deleted: "{name} supprimé.",
+    deleted: "Suppression effectuée : {name}.",
     delete_confirm: "Supprimer {name} ? Elle sera aussi retirée de l'horloge.",
     saved: "Enregistré.",
     import: "Importer",
