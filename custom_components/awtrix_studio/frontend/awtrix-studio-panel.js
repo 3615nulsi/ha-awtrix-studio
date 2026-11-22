@@ -441,9 +441,13 @@ class AwtrixStudioPanel extends HTMLElement {
 
   _subscribeSnapshot() {
     this._subscribe("snapshot", { type: "awtrix_studio/subscribe", entry_id: this._entryId }, (snapshot) => {
+      const layouts = this._layoutsAvailable();
       this._snapshot = snapshot;
       this._setClockIcons(snapshot);
       if (this._view.name === "overview") this._updateOverview();
+      // The clock tells its display size after the form was drawn: show the
+      // layouts as soon as it does (the form keeps what was typed).
+      else if (this._view.name === "edit" && this._view.kind === "app" && layouts !== this._layoutsAvailable()) this._renderFields();
     });
   }
 
@@ -1563,7 +1567,13 @@ class AwtrixStudioPanel extends HTMLElement {
 
   /** Layouts need AWTRIX NG on a large display (a TC002, 52 × 16). */
   _layoutsAvailable() {
-    return this._isNG() && (this._snapshot?.display?.height || 0) >= 16;
+    if (!this._isNG()) return false;
+    const display = this._snapshot?.display;
+    // Until the clock has told its size, offer the layouts rather than hide
+    // them: the size arrives a moment after a reload, and a form opened
+    // before then would never get them.
+    if (!display || display.known === false) return true;
+    return (display.height || 0) >= 16;
   }
 
   /** How a simple app is drawn: one line at double size, or a layout. */
@@ -1573,7 +1583,8 @@ class AwtrixStudioPanel extends HTMLElement {
     const select = h("select", { id: "f-layout", onChange: (e) => this._setLayout(e.target.value, select) },
       ...["", ...LAYOUTS].map((v) => h("option", { value: v }, this.t(`layout_${v || "line"}`))));
     select.value = f.layout;
-    return this._field("layout", this.t("layout"), select, this.t(`layout_${f.layout || "line"}_help`), true);
+    const waiting = this._snapshot?.display?.known === false ? ` ${this.t("layout_waiting")}` : "";
+    return this._field("layout", this.t("layout"), select, this.t(`layout_${f.layout || "line"}_help`) + waiting, true);
   }
 
   /** The fonts of a layout: the value's, and the title's or the lines'. */

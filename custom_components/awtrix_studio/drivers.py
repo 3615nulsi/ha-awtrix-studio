@@ -60,6 +60,9 @@ class DisplayInfo:
     height: int = AWTRIX3_HEIGHT
     # Apps drawn at double size (TC002): each app pixel lights 2 x 2.
     scale: int = 1
+    # False until the clock has told its size: the values above are then the
+    # AWTRIX 3 defaults, a guess, and not what the clock said.
+    known: bool = False
 
 
 @dataclass(frozen=True, slots=True)

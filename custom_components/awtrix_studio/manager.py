@@ -115,6 +115,10 @@ def app_config_from_subentry(subentry: ConfigSubentry, firmware: str) -> AppConf
     )
 
 
+# hass.data key of the display sizes the clocks told, by MQTT prefix.
+DISPLAY_CACHE_KEY = "awtrix_studio_display"
+
+
 class ClockManager:
     """Own the apps of one clock and the topics they share."""
 
@@ -148,8 +152,14 @@ class ClockManager:
         self._stopped = False
         self._online: bool | None = None
         self._capabilities: dict[str, list[str]] | None = None
-        self._display_size: tuple[int, int] | None = None
-        self._enlarge: bool | None = None
+        # The last size and double-size setting the clock told, kept across
+        # reloads of the clock: a reload would otherwise forget them until the
+        # retained messages arrive again, and the panel would hide the layouts.
+        self._display_cache: dict[str, Any] = hass.data.setdefault(
+            DISPLAY_CACHE_KEY, {}
+        ).setdefault(driver.prefix, {})
+        self._display_size: tuple[int, int] | None = self._display_cache.get("size")
+        self._enlarge: bool | None = self._display_cache.get("enlarge")
         # The live app or indicator publishing on each topic.
         self._by_topic: dict[str, LiveApp] = {}
         # Topics whose last payload was too large to send, and why. While a
@@ -201,7 +211,7 @@ class ClockManager:
         width, height = self._display_size
         # A TC002 draws apps on a half-size grid unless told otherwise.
         scale = 2 if height >= 16 and self._enlarge is not False else 1
-        return DisplayInfo(width, height, scale)
+        return DisplayInfo(width, height, scale, known=True)
 
     @property
     def order(self) -> list[str]:
@@ -626,6 +636,7 @@ class ClockManager:
             changed = True
         if size is not None and size != self._display_size:
             self._display_size = size
+            self._display_cache["size"] = size
             changed = True
         if changed:
             self._notify()
@@ -638,6 +649,7 @@ class ClockManager:
         enlarge = self.driver.parse_enlarge(str(payload))
         if enlarge is not None and enlarge != self._enlarge:
             self._enlarge = enlarge
+            self._display_cache["enlarge"] = enlarge
             self._notify()
 
     @callback
