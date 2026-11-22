@@ -249,6 +249,15 @@ pre { margin: 0; padding: 12px; border-radius: 8px; font-family: var(--ha-font-f
 .pill { font-size: 12px; padding: 4px 10px; border-radius: 12px; background: rgba(127,127,127,.15); }
 .pill.active { background: var(--primary-color, #0277bd); color: var(--text-primary-color, #fff); }
 .banner { padding: 12px 16px; border-radius: 10px; background: rgba(219,68,55,.12); color: var(--error-color, #db4437); }
+.entity-host ha-entity-picker { display: block; width: 100%; }
+.entity-list { position: absolute; z-index: 5; left: 0; right: 0; top: 100%; margin: 4px 0 0; padding: 4px; list-style: none; max-height: 280px; overflow: auto;
+  background: var(--card-background-color, #fff); border: 1px solid var(--divider-color, #c4c7cc); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.25); }
+.entity-list li { display: flex; flex-direction: column; gap: 1px; padding: 7px 10px; border-radius: 8px; cursor: pointer; }
+.entity-list li.active, .entity-list li:hover { background: rgba(127,127,127,.16); }
+.entity-name { font-size: 14px; }
+.entity-id { font-size: 12px; }
+.banner.ok { background: rgba(67,160,71,.14); color: var(--success-color, #43a047); }
+.picker.confirm { width: min(420px, 100%); padding: 20px; display: flex; flex-direction: column; gap: 16px; }
 .feedback { font-size: 13px; color: var(--secondary-text-color, #5f6368); min-height: 18px; }
 .color-body { display: flex; flex-direction: column; gap: 12px; }
 .gradient-editor { display: flex; flex-direction: column; gap: 12px; }
@@ -334,6 +343,7 @@ class AwtrixStudioPanel extends HTMLElement {
   set hass(hass) {
     const first = !this._hass;
     this._hass = hass;
+    this._nativePickers?.forEach((picker) => { if (picker.isConnected) picker.hass = hass; else this._nativePickers.delete(picker); });
     if (first && this.isConnected) this._init();
   }
 
@@ -372,7 +382,7 @@ class AwtrixStudioPanel extends HTMLElement {
 
     this._menuButton = h("button", { class: "icon-btn", "aria-label": this.t("menu"), onClick: () => this._toggleMenu() }, icon("menu"));
     this._menuButton.hidden = !this._narrow;
-    this._backButton = h("button", { class: "icon-btn", "aria-label": this.t("back"), onClick: () => this._showOverview() }, icon("back"));
+    this._backButton = h("button", { class: "icon-btn", "aria-label": this.t("back"), onClick: () => this._back() }, icon("back"));
     this._backButton.hidden = true;
     this._title = h("h1", {}, this.t("title"));
     this._clockSelect = h("select", { "aria-label": this.t("clock"), onChange: (e) => this._selectClock(e.target.value) });
@@ -469,6 +479,47 @@ class AwtrixStudioPanel extends HTMLElement {
       this._banner(this.t("errors.request_failed", { detail: err.message || err.code || "" }));
       return null;
     }
+  }
+
+  /** A confirmation inside the panel (instead of the browser's own dialog). */
+  _confirm(text, okLabel = this.t("continue"), danger = false) {
+    return new Promise((resolve) => {
+      const done = (value) => {
+        backdrop.remove();
+        resolve(value);
+      };
+      const ok = h("button", { class: `btn ${danger ? "danger" : "primary"}`, type: "button", onClick: () => done(true) }, okLabel);
+      const cancel = h("button", { class: "btn", type: "button", onClick: () => done(false) }, this.t("cancel"));
+      const dialog = h("div", { class: "picker confirm", role: "alertdialog", "aria-modal": "true", "aria-label": text },
+        h("div", {}, text), h("div", { class: "row" }, ok, cancel));
+      const backdrop = h("div", { class: "picker-backdrop", onClick: (e) => { if (e.target === backdrop) done(false); } }, dialog);
+      backdrop.addEventListener("keydown", (e) => { if (e.key === "Escape") done(false); });
+      this.shadowRoot.append(backdrop);
+      cancel.focus();
+    });
+  }
+
+  /** A short confirmation after an action (the page keeps working under it). */
+  _toast(text) {
+    if (!this._main) return;
+    const toast = h("div", { class: "banner ok", role: "status" }, text);
+    this._main.prepend(toast);
+    setTimeout(() => toast.remove(), 4000);
+  }
+
+  _isDirty() {
+    return this._view.name === "edit" && this._baseline !== undefined && JSON.stringify(this._form) !== this._baseline;
+  }
+
+  /** Leave the editor, asking first when something was changed. */
+  async _leaveEditor() {
+    if (this._isDirty() && !(await this._confirm(this.t("discard_confirm"), this.t("discard"), true))) return;
+    this._showOverview();
+  }
+
+  _back() {
+    if (this._view.name === "edit") this._leaveEditor();
+    else this._showOverview();
   }
 
   _banner(text) {
@@ -1009,6 +1060,7 @@ class AwtrixStudioPanel extends HTMLElement {
     if (kind === "app") this._title.textContent = item ? `${this.t("edit_app")} ${item.data.app_name}` : this.t("new_app");
     else this._title.textContent = item ? this.t("edit_indicator", { n: item.data.indicator }) : this.t("new_indicator");
     this._renderEditor();
+    this._baseline = JSON.stringify(this._form);
     this._refreshPreview();
   }
 
@@ -1247,7 +1299,7 @@ class AwtrixStudioPanel extends HTMLElement {
 
     const actions = h("div", { class: "row" },
       h("button", { class: "btn primary", onClick: () => this._save() }, this.t("save")),
-      h("button", { class: "btn", onClick: () => this._showOverview() }, this.t("cancel")),
+      h("button", { class: "btn", onClick: () => this._leaveEditor() }, this.t("cancel")),
       item ? h("button", { class: "btn", onClick: () => this._openExport([item.subentry_id]) }, icon("download"), this.t("export")) : null,
       item ? h("button", { class: "btn danger", onClick: () => this._delete() }, this.t("delete")) : null);
 
@@ -1263,9 +1315,9 @@ class AwtrixStudioPanel extends HTMLElement {
     this._previewDetail = h("div", { class: "muted" });
     this._json = h("pre", { "aria-label": this.t("json_title") });
     this._generated = h("pre", { "aria-label": this.t("generated_title") });
-    this._generatedBox = h("div", { class: "card pad", style: "display:flex;flex-direction:column;gap:10px" },
-      h("div", { class: "row between" }, h("h2", {}, this.t("generated_title")),
-        h("button", { class: "btn small", onClick: () => this._convert() }, this.t("convert"))),
+    this._generatedBox = h("details", { class: "card pad" },
+      h("summary", {}, this.t("generated_title")),
+      h("div", { class: "row", style: "margin:8px 0" }, h("button", { class: "btn small", onClick: () => this._convert() }, this.t("convert"))),
       this._generated);
     this._testFeedback = h("div", { class: "feedback", role: "status" });
 
@@ -1282,7 +1334,8 @@ class AwtrixStudioPanel extends HTMLElement {
             h("div", { class: "row" }, h("button", { class: "btn", onClick: () => this._test() }, this.t("test")),
               h("span", { class: "muted" }, this.t("test_note"))),
             this._testFeedback),
-          h("div", { class: "card pad", style: "display:flex;flex-direction:column;gap:10px" }, h("h2", {}, this.t("json_title")), this._json),
+          // Useful to look at, rarely needed: closed until asked for.
+          h("details", { class: "card pad" }, h("summary", {}, this.t("json_title")), this._json),
           this._generatedBox)));
     this._renderFields();
     this._drawPreview();
@@ -1344,10 +1397,133 @@ class AwtrixStudioPanel extends HTMLElement {
   }
 
   _entityInput(key = "entity_id", placeholder = this.t("entity_placeholder")) {
-    const listId = `awtrix-studio-entities-${key}`;
-    const list = h("datalist", { id: listId });
-    Object.keys(this._hass.states).sort().slice(0, 5000).forEach((id) => list.append(h("option", { value: id })));
-    return h("div", {}, this._input(key, "text", { list: listId, autocomplete: "off", spellcheck: "false", placeholder }), list);
+    return this._entityPicker(key, placeholder, () => {
+      if (key === "entity_id") this._entityChanged();
+      this._schedulePreview();
+    });
+  }
+
+  /** The entities Home Assistant knows, with the name it shows for each. */
+  _entityIndex() {
+    const states = this._hass.states;
+    const ids = Object.keys(states);
+    if (this._entityIndexCache && this._entityIndexCache.count === ids.length) return this._entityIndexCache.items;
+    const items = ids.sort().map((id) => {
+      const name = String(states[id]?.attributes?.friendly_name || "");
+      return { id, name, haystack: `${id} ${name}`.toLowerCase() };
+    });
+    this._entityIndexCache = { count: ids.length, items };
+    return items;
+  }
+
+  /** Entities matching what was typed: every word must appear in the id or the name. */
+  _matchEntities(query, limit = 50) {
+    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+    const matches = [];
+    for (const item of this._entityIndex()) {
+      if (words.every((w) => item.haystack.includes(w))) {
+        // What starts with the text comes first.
+        const rank = words.length && (item.id.startsWith(words[0]) || item.name.toLowerCase().startsWith(words[0])) ? 0 : 1;
+        matches.push({ item, rank });
+      }
+    }
+    matches.sort((a, b) => a.rank - b.rank);
+    return matches.slice(0, limit).map((m) => m.item);
+  }
+
+  /**
+   * The entity field. Home Assistant's own picker is used when the page can
+   * load it (it is loaded on demand, and may be missing in a custom panel);
+   * otherwise our own search field stays, so the field is never empty.
+   */
+  _entityPicker(key, placeholder, onChange) {
+    const host = h("div", { class: "entity-host" }, this._searchPicker(key, placeholder, onChange));
+    const swap = () => {
+      if (!customElements.get("ha-entity-picker")) return;
+      const picker = document.createElement("ha-entity-picker");
+      picker.id = `f-${key}`;
+      picker.hass = this._hass;
+      picker.value = this._form[key] || "";
+      picker.allowCustomEntity = true;
+      picker.addEventListener("value-changed", (e) => {
+        e.stopPropagation();
+        const value = e.detail?.value || "";
+        if (value === this._form[key]) return;
+        this._form[key] = value;
+        if (onChange) onChange();
+      });
+      (this._nativePickers ||= new Set()).add(picker);
+      host.replaceChildren(picker);
+    };
+    if (customElements.get("ha-entity-picker")) swap();
+    else this._loadNativePicker().then(() => { if (host.isConnected) swap(); });
+    return host;
+  }
+
+  /** Ask Home Assistant to load its entity picker, and wait a moment for it. */
+  _loadNativePicker() {
+    if (!this._nativePickerLoad) {
+      const wait = new Promise((resolve) => setTimeout(resolve, 2000));
+      const load = (async () => {
+        try {
+          if (window.loadCardHelpers) await window.loadCardHelpers();
+        } catch (_err) { /* the fallback picker stays */ }
+        await customElements.whenDefined("ha-entity-picker");
+      })();
+      this._nativePickerLoad = Promise.race([load, wait]);
+    }
+    return this._nativePickerLoad;
+  }
+
+  /** A text field that suggests entities by name or id, with no limit on how many exist. */
+  _searchPicker(key, placeholder, onChange) {
+    const input = h("input", { id: `f-${key}`, type: "text", value: this._form[key], placeholder, autocomplete: "off", spellcheck: "false",
+      role: "combobox", "aria-autocomplete": "list", "aria-expanded": "false" });
+    const list = h("ul", { class: "entity-list", role: "listbox", hidden: true });
+    let shown = [];
+    let active = -1;
+    const close = () => { list.hidden = true; input.setAttribute("aria-expanded", "false"); active = -1; };
+    const pick = (id) => {
+      input.value = id;
+      this._form[key] = id;
+      close();
+      if (onChange) onChange();
+    };
+    const render = () => {
+      shown = this._matchEntities(input.value.trim());
+      clear(list);
+      shown.forEach((item, i) => {
+        const row = h("li", { role: "option", class: i === active ? "active" : "", "aria-selected": i === active ? "true" : "false" },
+          h("span", { class: "entity-name" }, item.name || item.id), item.name ? h("span", { class: "muted entity-id" }, item.id) : null);
+        // Mouse down, not click: the field loses focus before a click lands.
+        row.addEventListener("mousedown", (e) => { e.preventDefault(); pick(item.id); });
+        list.append(row);
+      });
+      list.hidden = !shown.length;
+      input.setAttribute("aria-expanded", shown.length ? "true" : "false");
+    };
+    input.addEventListener("input", () => {
+      this._form[key] = input.value;
+      active = -1;
+      render();
+      if (onChange) onChange();
+    });
+    input.addEventListener("focus", render);
+    input.addEventListener("blur", close);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { close(); return; }
+      if (!shown.length || list.hidden) return;
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        active = (active + (e.key === "ArrowDown" ? 1 : -1) + shown.length) % shown.length;
+        render();
+        list.children[active]?.scrollIntoView({ block: "nearest" });
+      } else if (e.key === "Enter" && active >= 0) {
+        e.preventDefault();
+        pick(shown[active].id);
+      }
+    });
+    return h("div", { class: "entity-picker" }, input, list);
   }
 
   // ------------------------------------------------------------- icons
@@ -1604,13 +1780,13 @@ class AwtrixStudioPanel extends HTMLElement {
       text ? this._field("text_font", this.t(text), select("text_font", TEXT_FONTS)) : null);
   }
 
-  _setLayout(value, select) {
+  async _setLayout(value, select) {
     const f = this._form;
     this._syncSegment();
     // Two lines show two entities, the other layouts one.
     const keep = value === "two_lines" ? 2 : value ? 1 : MAX_SEGMENTS;
     if (f.segments.length > keep) {
-      if (!window.confirm(this.t("layout_drop_entities", { n: keep }))) {
+      if (!(await this._confirm(this.t("layout_drop_entities", { n: keep })))) {
         select.value = f.layout;
         return;
       }
@@ -2135,14 +2311,18 @@ class AwtrixStudioPanel extends HTMLElement {
     if (!result) return;
     if (result.errors) { this._showErrors(result.errors, result.detail); return; }
     this._showOverview();
+    this._toast(this.t("saved_toast"));
   }
 
   async _delete() {
     const { item, kind } = this._view;
     const name = kind === "app" ? item.data.app_name : this.t("indicator_n", { n: item.data.indicator });
-    if (!window.confirm(this.t("delete_confirm", { name }))) return;
+    if (!(await this._confirm(this.t("delete_confirm", { name }), this.t("delete"), true))) return;
     const result = await this._call({ type: "awtrix_studio/delete", subentry_id: item.subentry_id });
-    if (result !== null) this._showOverview();
+    if (result !== null) {
+      this._showOverview();
+      this._toast(this.t("deleted", { name }));
+    }
   }
 
   async _test() {
