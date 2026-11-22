@@ -165,9 +165,10 @@ def _snapshot(entry: ConfigEntry, manager: ClockManager | None) -> dict[str, Any
                 "width": manager.display.width,
                 "height": manager.display.height,
                 "scale": manager.display.scale,
+                "known": manager.display.known,
             }
             if manager
-            else {"width": 32, "height": 8, "scale": 1}
+            else {"width": 32, "height": 8, "scale": 1, "known": False}
         ),
         "features": {
             "screen": bool(driver and driver.screen_topic),

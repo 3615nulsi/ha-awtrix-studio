@@ -364,7 +364,12 @@ async def test_simple_app_speaks_ng(
     snapshot = (await client.receive_json())["event"]
     assert snapshot["capabilities"]["effects"] == ["Plasma"]
     # A TC002 draws apps at double size, on a 26 x 8 grid.
-    assert snapshot["display"] == {"width": 52, "height": 16, "scale": 2}
+    assert snapshot["display"] == {
+        "width": 52,
+        "height": 16,
+        "scale": 2,
+        "known": True,
+    }
     [item] = snapshot["items"]
     assert item["clock_error"] == "palette: out of range"
 
@@ -374,6 +379,32 @@ async def test_simple_app_speaks_ng(
     snapshot = (await client.receive_json())["event"]
     assert snapshot["items"][0]["clock_error"] is None
     assert snapshot["display"]["scale"] == 1
+
+
+async def test_display_size_survives_a_reload(
+    hass: HomeAssistant,
+    mqtt_mock: MqttMockHAClient,
+) -> None:
+    """The panel keeps its layouts while a reloaded clock waits for MQTT."""
+    entry = ng_entry()
+    await setup(hass, entry)
+    # Nothing heard yet: the size is a guess, and the snapshot says so.
+    assert entry.runtime_data.display.known is False
+
+    async_fire_mqtt_message(
+        hass,
+        f"{PREFIX}/state/capabilities",
+        json.dumps({"display": {"width": 52, "height": 16}}),
+    )
+    await hass.async_block_till_done()
+    assert entry.runtime_data.display.known is True
+
+    # A reload builds a new manager; the retained messages are not delivered
+    # again by the mocked client, so the size can only come from the cache.
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    display = entry.runtime_data.display
+    assert (display.width, display.height, display.known) == (52, 16, True)
 
 
 def sized_entry() -> MockConfigEntry:
