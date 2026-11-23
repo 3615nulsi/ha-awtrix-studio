@@ -11,6 +11,7 @@ except ImportError:  # pragma: no cover - older Home Assistant
     import voluptuous as vol
 
 from homeassistant.config_entries import (
+    SOURCE_IGNORE,
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
@@ -378,6 +379,13 @@ class AwtrixStudioConfigFlow(ConfigFlow, domain=DOMAIN):
                     data[CONF_PASSWORD] = password
                 # A title the user chose is kept; the default one follows.
                 title = prefix if entry.title == current[CONF_PREFIX] else entry.title
+                # A discovery of this prefix the user ignored is now the clock
+                # being reconfigured: forget it, as Home Assistant does when a
+                # clock is added by hand, so that no two entries share the
+                # prefix (their unique id).
+                for other in self._async_current_entries(include_ignore=True):
+                    if other.source == SOURCE_IGNORE and other.unique_id == prefix:
+                        await self.hass.config_entries.async_remove(other.entry_id)
                 return self.async_update_and_abort(
                     entry, unique_id=prefix, title=title, data=data
                 )

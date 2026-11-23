@@ -6,7 +6,11 @@ import json
 from typing import Any
 from unittest.mock import patch
 
-from homeassistant.config_entries import SOURCE_MQTT, ConfigSubentryDataWithId
+from homeassistant.config_entries import (
+    SOURCE_IGNORE,
+    SOURCE_MQTT,
+    ConfigSubentryDataWithId,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers.service_info.mqtt import MqttServiceInfo
@@ -202,6 +206,38 @@ async def test_reconfigure_keeps_a_chosen_title(
     await hass.async_block_till_done()
     assert entry.title == "Kitchen"
     assert entry.unique_id == "kitchen"
+
+
+async def test_reconfigure_onto_an_ignored_discovery(
+    hass: HomeAssistant, mqtt_mock: MqttMockHAClient
+) -> None:
+    """The ignored discovery of the new prefix goes: one entry per prefix."""
+    entry = clock()
+    await setup(hass, entry)
+    ignored = MockConfigEntry(
+        domain=DOMAIN, title="awtrixNG", unique_id="awtrixNG", source=SOURCE_IGNORE
+    )
+    ignored.add_to_hass(hass)
+    unrelated = MockConfigEntry(
+        domain=DOMAIN, title="other", unique_id="other", source=SOURCE_IGNORE
+    )
+    unrelated.add_to_hass(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"firmware": "awtrix_ng", "prefix": "awtrixNG"}
+    )
+    assert result["reason"] == "reconfigure_successful"
+    await hass.async_block_till_done()
+
+    assert entry.unique_id == "awtrixNG"
+    assert hass.config_entries.async_get_entry(ignored.entry_id) is None
+    assert hass.config_entries.async_get_entry(unrelated.entry_id) is not None
+    assert [
+        e.entry_id
+        for e in hass.config_entries.async_entries(DOMAIN, include_ignore=True)
+        if e.unique_id == "awtrixNG"
+    ] == [entry.entry_id]
 
 
 async def test_credentials_are_not_logged(
