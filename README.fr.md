@@ -289,7 +289,7 @@ Les apps sont renvoyées automatiquement, de même quand MQTT se reconnecte. Les
 
 ## 🤝 Contribuer
 
-Rapports de bugs, idées et pull requests sont les bienvenus dans les [issues](https://github.com/3615nulsi/ha-awtrix-studio/issues). Publié sous [licence MIT](LICENSE).
+Rapports de bugs, idées et pull requests sont les bienvenus dans les [issues](https://github.com/3615nulsi/ha-awtrix-studio/issues). Lisez d'abord le [guide de contribution](CONTRIBUTING.md) (en anglais) et respectez le [code de conduite](CODE_OF_CONDUCT.md). Pour signaler une faille, suivez la [politique de sécurité](SECURITY.md). Publié sous [licence MIT](LICENSE).
 
 ## ☕ Soutenir le projet
 

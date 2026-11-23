@@ -289,7 +289,7 @@ Apps are sent again automatically, as well as when MQTT reconnects. Requests tha
 
 ## 🤝 Contributing
 
-Bug reports, ideas and pull requests are welcome in the [issues](https://github.com/3615nulsi/ha-awtrix-studio/issues). Released under the [MIT license](LICENSE).
+Bug reports, ideas and pull requests are welcome in the [issues](https://github.com/3615nulsi/ha-awtrix-studio/issues). Please read the [contributing guide](CONTRIBUTING.md) first, and follow the [code of conduct](CODE_OF_CONDUCT.md). To report a vulnerability, see the [security policy](SECURITY.md). Released under the [MIT license](LICENSE).
 
 ## ☕ Support the project
 
