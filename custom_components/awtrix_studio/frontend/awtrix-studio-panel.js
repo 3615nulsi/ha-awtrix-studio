@@ -557,6 +557,8 @@ class AwtrixStudioPanel extends HTMLElement {
 
     this._grid = h("div", { class: "grid" });
     this._indicatorRow = h("div", { class: "indicators" });
+    this._address = h("a", { target: "_blank", rel: "noopener noreferrer" });
+    this._addressRow = h("div", { hidden: true }, h("dt", {}, this.t("clock_address")), h("dd", {}, this._address));
 
     this._main.append(
       this._notLoaded,
@@ -566,7 +568,8 @@ class AwtrixStudioPanel extends HTMLElement {
         h("div", { class: "live-info" },
           h("h2", {}, this.t("live_title")),
           h("dl", {}, h("div", {}, h("dt", {}, this.t("current_app")), this._currentApp),
-            h("div", {}, h("dt", {}, this.t("in_rotation")), this._rotation)),
+            h("div", {}, h("dt", {}, this.t("in_rotation")), this._rotation),
+            this._addressRow),
           this._navRow)),
       h("section", { class: "row between" },
         h("h2", {}, this.t("apps")),
@@ -604,6 +607,13 @@ class AwtrixStudioPanel extends HTMLElement {
 
     const apps = this._items("app");
     this._currentApp.textContent = snapshot.current_app || this.t("unknown");
+    // Only a plain IPv4 address becomes a link, opened in a new tab.
+    const address = /^\d{1,3}(\.\d{1,3}){3}$/.test(snapshot.address || "") ? snapshot.address : "";
+    this._addressRow.hidden = !address;
+    if (address) {
+      this._address.href = `http://${address}`;
+      this._address.textContent = address;
+    }
     this._rotation.textContent = `${apps.filter((a) => a.enabled && a.pages.length).length} / ${apps.length}`;
 
     const structure = snapshot.items.map((i) => `${i.subentry_id}:${i.kind}:${i.data.mode}`).join("|") + `#${(snapshot.order || []).join("|")}`;

@@ -157,6 +157,7 @@ def _snapshot(entry: ConfigEntry, manager: ClockManager | None) -> dict[str, Any
         "firmware": entry.data[CONF_FIRMWARE],
         "loaded": manager is not None,
         "current_app": manager.current_app if manager else None,
+        "address": manager.files.address if manager else None,
         "order": clean_order(entry.options.get(CONF_APP_ORDER)),
         "loop": manager.loop if manager else None,
         "capabilities": manager.capabilities if manager else None,
