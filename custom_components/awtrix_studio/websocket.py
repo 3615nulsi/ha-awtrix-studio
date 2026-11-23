@@ -235,6 +235,8 @@ def ws_clocks(
                 "loaded": entry.state is ConfigEntryState.LOADED,
             }
             for entry in hass.config_entries.async_entries(DOMAIN)
+            # An ignored discovery has no data: it is not a clock.
+            if CONF_PREFIX in entry.data and CONF_FIRMWARE in entry.data
         ],
     )
 
