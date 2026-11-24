@@ -346,6 +346,44 @@ def _text_region(
     )
 
 
+def _icon_regions(icon: str) -> tuple[int, int, str]:
+    """Where the text starts, how wide it is, and the regions of the icon.
+
+    The icon sits on the left when there is one; the regions are a Jinja list.
+    """
+    x = TEXT_X if icon else 0
+    regions = (
+        f'[{{"id": "icon", "box": {ICON_BOX}, "icon": {jinja_str(icon)}}}]'
+        if icon
+        else "[]"
+    )
+    return x, DISPLAY_WIDTH - x, regions
+
+
+def _entity_block(
+    number: int, segment: Mapping[str, Any], assign: str, init: Sequence[str] = ()
+) -> list[str]:
+    """Lines reading the entity of a line, then running `assign` when it is shown.
+
+    `init` runs first, before the entity is read; `assign` can use the `text`,
+    `label` and `color` that the lines of the text define.
+    """
+    entity = _entity_id(segment.get(CONF_ENTITY_ID))
+    shown = "raw not in ['unknown', 'unavailable', '']"
+    if segment.get(CONF_HIDE_WHEN_ZERO, False):
+        shown += " and not (num is not none and num == 0)"
+    return [
+        f"{{#- Line {number}: {entity} -#}}",
+        *init,
+        f"{{%- set raw = states({jinja_str(entity)}) -%}}",
+        "{%- set num = raw | float if raw | is_number else none -%}",
+        f"{{%- if {shown} -%}}",
+        *_text_lines(segment),
+        assign,
+        "{%- endif -%}",
+    ]
+
+
 def _build_layout_template(options: Mapping[str, Any]) -> str:
     """An app drawn on the whole display of a TC002, in boxes (AWTRIX NG).
 
@@ -355,13 +393,7 @@ def _build_layout_template(options: Mapping[str, Any]) -> str:
     """
     layout = options[CONF_LAYOUT]
     icon = str(options.get(CONF_ICON) or "").strip()
-    x = TEXT_X if icon else 0
-    width = DISPLAY_WIDTH - x
-    regions = (
-        f'[{{"id": "icon", "box": {ICON_BOX}, "icon": {jinja_str(icon)}}}]'
-        if icon
-        else "[]"
-    )
+    x, width, regions = _icon_regions(icon)
     lines = [HEADER]
     if layout == LAYOUT_TWO_LINES:
         return "\n".join(lines + _two_lines(options, regions, x, width))
@@ -435,20 +467,11 @@ def _two_lines(
     """Two entities, one per line; one left alone takes the whole height."""
     lines = ["{%- set parts = [] -%}"]
     for number, segment in enumerate(app_segments(options)[:2], 1):
-        entity = _entity_id(segment.get(CONF_ENTITY_ID))
-        shown = "raw not in ['unknown', 'unavailable', '']"
-        if segment.get(CONF_HIDE_WHEN_ZERO, False):
-            shown += " and not (num is not none and num == 0)"
-        lines += [
-            f"{{#- Line {number}: {entity} -#}}",
-            f"{{%- set raw = states({jinja_str(entity)}) -%}}",
-            "{%- set num = raw | float if raw | is_number else none -%}",
-            f"{{%- if {shown} -%}}",
-            *_text_lines(segment),
+        assign = (
             f'{{%- set parts = parts + [{{"t": {_layout_text(segment)},'
-            ' "c": color}] -%}',
-            "{%- endif -%}",
-        ]
+            ' "c": color}] -%}'
+        )
+        lines += _entity_block(number, segment, assign)
     value_font = _font(options, CONF_VALUE_FONT, VALUE_FONTS)
     line_font = _font(options, CONF_TEXT_FONT, TEXT_FONTS)
     alone = _text_region(
