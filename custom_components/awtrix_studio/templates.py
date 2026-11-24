@@ -23,6 +23,7 @@ from .const import (
     COLOR_STATE,
     COLOR_STEPS,
     CONF_ACTIVE_STATE,
+    CONF_ALIGN,
     CONF_COLOR,
     CONF_COLOR_1,
     CONF_COLOR_2,
@@ -31,6 +32,7 @@ from .const import (
     CONF_EFFECT,
     CONF_EFFECT_INTERVAL,
     CONF_ENTITY_ID,
+    CONF_FONT,
     CONF_HIDE_WHEN_ZERO,
     CONF_ICON,
     CONF_LABEL,
@@ -63,11 +65,13 @@ from .const import (
     FIRMWARE_AWTRIX3,
     FIRMWARE_AWTRIX_NG,
     INDICATOR_COLOR_MODES,
+    LAYOUT_LINE,
     LAYOUT_TITLE_VALUE,
     LAYOUT_TWO_LINES,
     LAYOUT_VALUE_BAR,
     LAYOUT_VALUE_TIME,
     LAYOUTS,
+    NOTIFICATION_LAYOUTS,
     TEXT_FONTS,
     VALUE_FONTS,
 )
@@ -711,3 +715,102 @@ def build_indicator_template(
             "{%- endif -%}",
         ]
     )
+
+
+# ------------------------------------------------- notification lines
+
+
+def notification_font(layout: str, index: int, font: Any) -> str:
+    """The font of a line, or its layout's default.
+
+    A title is 7 pixels high: only the small fonts fit there. The first line of
+    a lone line, and the value under a title, are 8 pixels high.
+    """
+    if layout == LAYOUT_TITLE_VALUE and index == 0:
+        return font if font in TEXT_FONTS else TEXT_FONTS[0]
+    default = TEXT_FONTS[0] if layout == LAYOUT_TWO_LINES else VALUE_FONTS[0]
+    return font if font in (*VALUE_FONTS, *TEXT_FONTS) else default
+
+
+def _line_lines(number: int, line: Mapping[str, Any]) -> list[str]:
+    """Lines setting `line<number>` to its text and color, or to none."""
+    name = f"line{number}"
+    entity = str(line.get(CONF_ENTITY_ID) or "").strip()
+    label = str(line.get(CONF_LABEL) or "").strip()
+    if not entity:
+        color = rgb_to_hex(line.get(CONF_COLOR), DEFAULT_COLOR)
+        if not label:
+            return [f"{{%- set {name} = none -%}}"]
+        return [
+            f'{{%- set {name} = {{"t": {jinja_str(label)}, "c": {jinja_str(color)}}}'
+            " -%}"
+        ]
+    return _entity_block(
+        number,
+        line,
+        f'{{%- set {name} = {{"t": text, "c": color}} -%}}',
+        init=[f"{{%- set {name} = none -%}}"],
+    )
+
+
+def build_lines_template(options: Mapping[str, Any]) -> str:
+    """Template for a notification: one or two lines, each a text and/or an entity.
+
+    Without a layout the lines are written in one text. A layout (on a TC002)
+    draws each line in its own place and font. For AWTRIX NG only.
+    """
+    layout = options.get(CONF_LAYOUT) or ""
+    lines_options = app_segments(options)
+    keys = _keys(FIRMWARE_AWTRIX_NG)
+    icon = str(options.get(CONF_ICON) or "").strip()
+    out = [HEADER]
+    for number, line in enumerate(lines_options, 1):
+        out += _line_lines(number, line)
+    names = ", ".join(f"line{n}" for n in range(1, len(lines_options) + 1))
+    out += [
+        f"{{%- set shown = [{names}] | reject('none') | list -%}}",
+        "{%- if not shown -%}",
+        "[]",
+        "{%- else -%}",
+    ]
+    if layout not in NOTIFICATION_LAYOUTS:
+        text = 'shown | map(attribute="t") | join(" ")'
+        page = f'{{"text": {text}, "{keys["color"]}": shown[0].c'
+        if icon:
+            page += f', "icon": {jinja_str(icon)}'
+        return "\n".join([*out, f"{{{{ {page}}} | tojson }}}}", "{%- endif -%}"])
+
+    x, width, regions = _icon_regions(icon)
+    out.append(f"{{%- set regions = {regions} -%}}")
+    if layout == LAYOUT_LINE:
+        boxes = [_box(x, 0, width, 16)]
+    elif layout == LAYOUT_TWO_LINES:
+        boxes = [_box(x, 0, width, 8), _box(x, 8, width, 8)]
+    else:
+        boxes = [_box(x, 0, width, 7), _box(x, 8, width, 8)]
+    for number, box in enumerate(boxes, 1):
+        if number > len(lines_options):
+            break
+        line = lines_options[number - 1]
+        font = notification_font(layout, number - 1, line.get(CONF_FONT))
+        # Centered is the clock's own default.
+        align = line.get(CONF_ALIGN)
+        extra = f', "align": "{align}"' if align in ("start", "end") else ""
+        region = _text_region(
+            f"line{number}",
+            box,
+            f"line{number}.t",
+            font,
+            f"line{number}.c",
+            extra=extra,
+        )
+        out += [
+            f"{{%- if line{number} -%}}",
+            f"{{%- set regions = regions + [{region}] -%}}",
+            "{%- endif -%}",
+        ]
+    out += [
+        '{{ {"layout": {"version": 1, "regions": regions}} | tojson }}',
+        "{%- endif -%}",
+    ]
+    return "\n".join(out)

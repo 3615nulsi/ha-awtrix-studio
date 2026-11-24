@@ -1,4 +1,4 @@
-"""Export and import apps and indicators, to share them or copy them between clocks.
+"""Export and import apps, indicators and notifications between clocks.
 
 The file is JSON:
 
@@ -7,7 +7,8 @@ The file is JSON:
       "items": [
         {"type": "app", "mode": "simple", "app_name": "co2", ...},
         {"type": "app", "mode": "template", "firmware": "awtrix3", ...},
-        {"type": "indicator", "mode": "simple", "indicator": "1", ...}
+        {"type": "indicator", "mode": "simple", "indicator": "1", ...},
+        {"type": "notification", "mode": "simple", "notification_name": "door", ...}
       ]
     }
 
@@ -41,8 +42,10 @@ from .const import (
     CONF_INDICATOR,
     CONF_LAYOUT,
     CONF_MODE,
+    CONF_NOTIFICATION_NAME,
     CONF_TEMPLATE,
     CONF_TEXT_FONT,
+    CONF_TRIGGER_ENTITY,
     CONF_VALUE_FONT,
     FIRMWARE_AWTRIX_NG,
     INDICATORS,
@@ -50,7 +53,9 @@ from .const import (
     MODE_TEMPLATE,
     SUBENTRY_TYPE_APP,
     SUBENTRY_TYPE_INDICATOR,
+    SUBENTRY_TYPE_NOTIFICATION,
 )
+from .notifications import normalize_notification
 from .templates import app_segments
 from .validation import Invalid, normalize
 
@@ -63,7 +68,14 @@ ACTION_REPLACE: Final = "replace"
 ACTION_SKIP: Final = "skip"
 ACTIONS: Final = (ACTION_ADD, ACTION_REPLACE, ACTION_SKIP)
 
-KINDS: Final = (SUBENTRY_TYPE_APP, SUBENTRY_TYPE_INDICATOR)
+KINDS: Final = (SUBENTRY_TYPE_APP, SUBENTRY_TYPE_INDICATOR, SUBENTRY_TYPE_NOTIFICATION)
+
+# What names an item of each kind on a clock.
+NAME_KEYS: Final = {
+    SUBENTRY_TYPE_APP: CONF_APP_NAME,
+    SUBENTRY_TYPE_INDICATOR: CONF_INDICATOR,
+    SUBENTRY_TYPE_NOTIFICATION: CONF_NOTIFICATION_NAME,
+}
 
 
 class InvalidDocumentError(ValueError):
@@ -151,8 +163,8 @@ def parse_document(document: Any) -> list[Mapping[str, Any]]:
     return [item if isinstance(item, Mapping) else {} for item in items]
 
 
-def _free_name(name: str, taken: set[str]) -> str:
-    base = name[:28] or "app"
+def _free_name(name: str, taken: set[str], fallback: str = "app") -> str:
+    base = name[:28] or fallback
     for number in range(2, 1000):
         candidate = f"{base}_{number}"
         if candidate not in taken:
@@ -160,17 +172,22 @@ def _free_name(name: str, taken: set[str]) -> str:
     return base  # pragma: no cover - a thousand apps on one clock
 
 
-def _entities(hass: HomeAssistant, data: Mapping[str, Any]) -> list[str]:
+def _entities(
+    hass: HomeAssistant, data: Mapping[str, Any], kind: str = SUBENTRY_TYPE_APP
+) -> list[str]:
     """Entities an item uses that do not exist here."""
     used: set[str] = set()
+    if kind == SUBENTRY_TYPE_NOTIFICATION:
+        used.add(data[CONF_TRIGGER_ENTITY])
     if data.get(CONF_MODE) == MODE_SIMPLE:
         used |= {segment[CONF_ENTITY_ID] for segment in app_segments(data)}
     else:
         try:
             info = Template(data[CONF_TEMPLATE], hass).async_render_to_info()
         except TemplateError:
-            return []
-        used |= info.entities
+            info = None
+        if info is not None:
+            used |= info.entities
     return sorted(
         entity_id
         for entity_id in used
@@ -191,17 +208,22 @@ def plan_import(  # noqa: PLR0912, PLR0915
     or under a free name (or a free indicator) when it is taken. Choices may
     skip an item, replace the existing one, or pick another name or indicator.
     """
-    existing_apps = {
-        subentry.data.get(CONF_APP_NAME): sid
-        for sid, subentry in entry.subentries.items()
-        if subentry.subentry_type == SUBENTRY_TYPE_APP
+    existing_names: dict[str, dict[Any, str]] = {
+        kind: {
+            subentry.data.get(NAME_KEYS[kind]): sid
+            for sid, subentry in entry.subentries.items()
+            if subentry.subentry_type == kind
+        }
+        for kind in (SUBENTRY_TYPE_APP, SUBENTRY_TYPE_NOTIFICATION)
     }
     existing_indicators = {
         subentry.data.get(CONF_INDICATOR): sid
         for sid, subentry in entry.subentries.items()
         if subentry.subentry_type == SUBENTRY_TYPE_INDICATOR
     }
-    claimed_names = set(existing_apps)
+    claimed: dict[str, set[Any]] = {
+        kind: set(names) for kind, names in existing_names.items()
+    }
     claimed_indicators: set[str] = set()
     replaced: set[str] = set()
     plans: list[ImportItem] = []
@@ -209,9 +231,11 @@ def plan_import(  # noqa: PLR0912, PLR0915
     for index, raw in enumerate(raw_items):
         choice = choices[index] if choices and index < len(choices) else {}
         kind = raw.get("type")
+        if not isinstance(kind, str):  # untrusted file: could be a list or a dict
+            kind = None
         mode = raw.get(CONF_MODE)
-        is_app = kind == SUBENTRY_TYPE_APP
-        raw_name = raw.get(CONF_APP_NAME if is_app else CONF_INDICATOR)
+        is_app = kind in existing_names  # named by text: an app or a notification
+        raw_name = raw.get(NAME_KEYS[kind]) if kind in NAME_KEYS else None
         name = str(raw_name)[:64] if isinstance(raw_name, (str, int)) else ""
         plan = ImportItem(
             index=index,
@@ -241,16 +265,20 @@ def plan_import(  # noqa: PLR0912, PLR0915
         requested = choice.get("target")
         if is_app:
             target = requested if isinstance(requested, str) else name
-            taken = existing_apps.get(target)
+            claimed_names = claimed[kind]
+            taken = existing_names[kind].get(target)
             if action is None:
                 if target in claimed_names or not re.fullmatch(
                     APP_NAME_PATTERN, target or ""
                 ):
-                    clean = re.sub(r"[^A-Za-z0-9_-]", "_", target or "app")[:32]
+                    fallback = (
+                        "notification" if kind == SUBENTRY_TYPE_NOTIFICATION else "app"
+                    )
+                    clean = re.sub(r"[^A-Za-z0-9_-]", "_", target or fallback)[:32]
                     target = (
                         clean
                         if clean not in claimed_names and clean
-                        else _free_name(clean, claimed_names)
+                        else _free_name(clean, claimed_names, fallback)
                     )
                     taken = None
                 action = ACTION_ADD
@@ -310,16 +338,16 @@ def plan_import(  # noqa: PLR0912, PLR0915
             for key in (CONF_LAYOUT, CONF_VALUE_FONT, CONF_TEXT_FONT):
                 data.pop(key, None)
             plan.warnings.append("layout_dropped")
-        if is_app:
-            data[CONF_APP_NAME] = target
-        else:
-            data[CONF_INDICATOR] = target
+        data[NAME_KEYS[kind]] = target
         try:
             # Replacing keeps the existing item's identity; a new item is
             # checked against the clock (its name was reserved above).
-            plan.data = normalize(hass, entry, plan.kind, data, plan.replaces)
+            if plan.kind == SUBENTRY_TYPE_NOTIFICATION:
+                plan.data = normalize_notification(hass, entry, data, plan.replaces)
+            else:
+                plan.data = normalize(hass, entry, plan.kind, data, plan.replaces)
         except Invalid as err:
             plan.action, plan.error, plan.detail = ACTION_SKIP, err.key, err.detail
             continue
-        plan.missing_entities = _entities(hass, plan.data)
+        plan.missing_entities = _entities(hass, plan.data, plan.kind)
     return plans

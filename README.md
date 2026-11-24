@@ -117,9 +117,15 @@ AWTRIX 3 can only reorder apps through its web page, so Awtrix Studio uses the a
 
 The clock has three small colored lights on the right edge of its screen. Light one up while a door is open, show your solar surplus as a color, signal new mail… In simple mode, it's either "lit in this color while this entity is in this state", or "always lit, with a color that follows this value" using the same gradients as apps. Blink or fade are optional.
 
+### Notifications
+
+A notification shows a message on the clock when an entity *enters* a state: a doorbell, a rain or storm alert, a door left open. Pick the entity and the state that trigger it (the trigger itself is never shown), then write what to show: one or two lines, each a text and/or the value of an entity (unit, decimals, color, color by value), laid out on one line, on two lines, or as a title and a value, with a font and an alignment per line. Choose an icon, a duration, scroll repeats, a sound, whether it stays until dismissed and whether it queues behind other notifications. A *delay* keeps a new trigger from showing it again too soon (a rain sensor that goes on and off, say). A preview shows the exact message sent to the clock, **Test** sends it (and takes it off after 15 seconds), and each notification has its own switch. Template mode lets you write the firmware's own JSON. Notifications are included in export and import.
+
+Notifications need **AWTRIX NG**. Each one is sent with its own name and dismissed by that name, so a notification never takes down one sent by another automation. Optionally it is dismissed when the entity leaves the state, even if it was sent before Home Assistant restarted. Nothing is stored between restarts: at startup each notification simply watches its entity again, and one already shown stays on the clock until it is dismissed. Like apps, a notification must fit the clock's 8187 bytes (topic included): a larger one is not sent and the panel says why.
+
 ### Share and copy apps
 
-**Export** saves the apps and indicators you pick to a small JSON file, or copies it so you can paste it in a forum post. **Import** reads such a file on another clock (or another Home Assistant) and shows you exactly what will happen before anything changes: names already taken get a free name or can replace the existing app, entities that don't exist on this installation are listed, and templates can be read before you accept them.
+**Export** saves the apps, indicators and notifications you pick to a small JSON file, or copies it so you can paste it in a forum post. **Import** reads such a file on another clock (or another Home Assistant) and shows you exactly what will happen before anything changes: names already taken get a free name or can replace the existing app, entities that don't exist on this installation are listed, and templates can be read before you accept them.
 
 Simple apps describe *what* to show, not how a firmware draws it, so they also move between AWTRIX 3 and AWTRIX NG. Template apps contain the JSON of their clock's firmware, and are flagged when imported on a clock running the other one.
 

@@ -49,8 +49,11 @@ from .const import (
     CONF_COLOR_1,
     CONF_COLOR_2,
     CONF_COLOR_MODE,
+    CONF_COOLDOWN,
     CONF_CYCLE_ONLY_ON_SCREEN,
     CONF_DECIMALS,
+    CONF_DISMISS_ON_CLEAR,
+    CONF_DURATION,
     CONF_EFFECT,
     CONF_EFFECT_INTERVAL,
     CONF_ENTITY_ID,
@@ -61,6 +64,7 @@ from .const import (
     CONF_GRADIENT_STOPS,
     CONF_HIDE_WHEN_EMPTY,
     CONF_HIDE_WHEN_ZERO,
+    CONF_HOLD,
     CONF_ICON,
     CONF_INDICATOR,
     CONF_LABEL,
@@ -68,6 +72,7 @@ from .const import (
     CONF_LAYOUT,
     CONF_LIFETIME,
     CONF_MODE,
+    CONF_NOTIFICATION_NAME,
     CONF_PAGE_INTERVAL,
     CONF_PREFIX,
     CONF_PROGRESS,
@@ -76,13 +81,18 @@ from .const import (
     CONF_PROGRESS_ENTITY,
     CONF_PROGRESS_MAX,
     CONF_PROGRESS_MIN,
+    CONF_REPEAT,
     CONF_SEGMENTS,
     CONF_SEPARATOR,
     CONF_SHOW_UNIT,
+    CONF_SOUND,
+    CONF_STACK,
     CONF_TEMPLATE,
     CONF_TEXT_FONT,
     CONF_THRESHOLD_1,
     CONF_THRESHOLD_2,
+    CONF_TRIGGER_ENTITY,
+    CONF_TRIGGER_STATE,
     CONF_UNIT,
     CONF_VALUE_FONT,
     DEFAULT_ACTIVE_STATE,
@@ -93,12 +103,14 @@ from .const import (
     DEFAULT_HIDE_WHEN_EMPTY,
     DEFAULT_INDICATOR_COLOR,
     DEFAULT_LIFETIME,
+    DEFAULT_NOTIFICATION_DURATION,
     DEFAULT_PAGE_INTERVAL,
     DEFAULT_PREFIX,
     DEFAULT_PROGRESS_BG,
     DEFAULT_PROGRESS_MAX,
     DEFAULT_PROGRESS_MIN,
     DEFAULT_SEPARATOR,
+    DEFAULT_TRIGGER_STATE,
     DOMAIN,
     EFFECT_NONE,
     EFFECTS,
@@ -108,24 +120,29 @@ from .const import (
     INDICATOR_COLOR_MODES,
     INDICATORS,
     MAX_LIFETIME,
+    MAX_NOTIFICATION_COOLDOWN,
+    MAX_NOTIFICATION_DURATION,
+    MAX_NOTIFICATION_REPEAT,
     MAX_PAGE_INTERVAL,
     MIN_PAGE_INTERVAL,
     MODE_SIMPLE,
     MODE_TEMPLATE,
     SUBENTRY_TYPE_APP,
     SUBENTRY_TYPE_INDICATOR,
+    SUBENTRY_TYPE_NOTIFICATION,
 )
 from .detect import async_detect_firmware
 from .display import CONF_DISPLAY
 from .drivers import DRIVERS
 from .gradients import GRADIENTS, InvalidGradientError, resolve_stops, stops_to_data
+from .notifications import normalize_notification
 from .templates import (
     app_color_mode,
     build_app_template,
     build_indicator_template,
     indicator_color_mode,
 )
-from .validation import check_template
+from .validation import Invalid, check_template
 
 MQTT_DOMAIN = "mqtt"
 # Firmware choice that asks the clock which firmware it runs.
@@ -430,6 +447,7 @@ class AwtrixStudioConfigFlow(ConfigFlow, domain=DOMAIN):
         return {
             SUBENTRY_TYPE_APP: AppSubentryFlow,
             SUBENTRY_TYPE_INDICATOR: IndicatorSubentryFlow,
+            SUBENTRY_TYPE_NOTIFICATION: NotificationSubentryFlow,
         }
 
 
@@ -625,7 +643,7 @@ class AppSubentryFlow(_LiveSubentryFlow):
         schema = vol.Schema(
             {
                 **self._name_field(),
-                vol.Required(CONF_ENTITY_ID): EntitySelector(),
+                vol.Optional(CONF_ENTITY_ID): EntitySelector(),
                 vol.Optional(CONF_LABEL): TextSelector(),
                 vol.Optional(CONF_ICON): TextSelector(),
                 vol.Required(CONF_COLOR, default=DEFAULT_COLOR): ColorRGBSelector(),
@@ -802,3 +820,113 @@ class IndicatorSubentryFlow(_LiveSubentryFlow):
             }
         )
         return self._show("template", schema, user_input, errors, placeholders)
+
+
+class NotificationSubentryFlow(ConfigSubentryFlow):
+    """Add or edit a simple notification (templates are edited in the panel)."""
+
+    @property
+    def _is_new(self) -> bool:
+        return self.source == "user"
+
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Add a notification."""
+        return await self._async_form("user", user_input)
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Edit a notification."""
+        if self._get_reconfigure_subentry().data.get(CONF_MODE) != MODE_SIMPLE:
+            return self.async_abort(reason="edit_in_panel")
+        return await self._async_form("reconfigure", user_input)
+
+    async def _async_form(
+        self, step_id: str, user_input: dict[str, Any] | None
+    ) -> SubentryFlowResult:
+        errors: dict[str, str] = {}
+        entry = self._get_entry()
+        if entry.data[CONF_FIRMWARE] != FIRMWARE_AWTRIX_NG:
+            return self.async_abort(reason="notifications_ng_only")
+        subentry_id = None if self._is_new else self._reconfigure_subentry_id
+        if user_input is not None:
+            try:
+                data = normalize_notification(
+                    self.hass,
+                    entry,
+                    {CONF_MODE: MODE_SIMPLE, **user_input},
+                    subentry_id,
+                )
+            except Invalid as err:
+                errors[err.field if err.field in user_input else "base"] = err.key
+            else:
+                if self._is_new:
+                    name = data[CONF_NOTIFICATION_NAME]
+                    return self.async_create_entry(
+                        title=name, data=data, unique_id=f"notification:{name}"
+                    )
+                return self.async_update_and_abort(
+                    entry, self._get_reconfigure_subentry(), data=data
+                )
+
+        schema = vol.Schema(
+            {
+                **(
+                    {vol.Required(CONF_NOTIFICATION_NAME): TextSelector()}
+                    if self._is_new
+                    else {}
+                ),
+                vol.Required(CONF_TRIGGER_ENTITY): EntitySelector(),
+                vol.Required(
+                    CONF_TRIGGER_STATE, default=DEFAULT_TRIGGER_STATE
+                ): TextSelector(),
+                vol.Optional(CONF_ENTITY_ID): EntitySelector(),
+                vol.Optional(CONF_LABEL): TextSelector(),
+                vol.Optional(CONF_ICON): TextSelector(),
+                vol.Required(CONF_COLOR, default=DEFAULT_COLOR): ColorRGBSelector(),
+                vol.Required(
+                    CONF_DURATION, default=DEFAULT_NOTIFICATION_DURATION
+                ): NumberSelector(
+                    NumberSelectorConfig(
+                        min=1,
+                        max=MAX_NOTIFICATION_DURATION,
+                        step=1,
+                        unit_of_measurement="s",
+                        mode=NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(CONF_HOLD, default=False): BooleanSelector(),
+                vol.Required(CONF_COOLDOWN, default=0): NumberSelector(
+                    NumberSelectorConfig(
+                        min=0,
+                        max=MAX_NOTIFICATION_COOLDOWN,
+                        step=1,
+                        unit_of_measurement="min",
+                        mode=NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(CONF_REPEAT, default=0): NumberSelector(
+                    NumberSelectorConfig(
+                        min=0,
+                        max=MAX_NOTIFICATION_REPEAT,
+                        step=1,
+                        mode=NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(CONF_STACK, default=True): BooleanSelector(),
+                vol.Optional(CONF_SOUND): TextSelector(),
+                vol.Required(CONF_DISMISS_ON_CLEAR, default=True): BooleanSelector(),
+            }
+        )
+        suggested = (
+            user_input
+            if user_input is not None
+            else (None if self._is_new else dict(self._get_reconfigure_subentry().data))
+        )
+        return self.async_show_form(
+            step_id=step_id,
+            data_schema=self.add_suggested_values_to_schema(schema, suggested),
+            errors=errors,
+        )

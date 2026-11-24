@@ -113,6 +113,7 @@ async def test_clocks_and_snapshot(
         "navigate": True,
         "order": True,
         "icon_files": True,
+        "notifications": False,
     }
     [item] = snapshot["items"]
     assert item["subentry_id"] == "app_demo"

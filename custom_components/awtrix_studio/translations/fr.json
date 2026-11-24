@@ -230,6 +230,90 @@
           }
         }
       }
+    },
+    "notification": {
+      "entry_type": "Notification",
+      "initiate_flow": {
+        "user": "Ajouter une notification",
+        "reconfigure": "Modifier la notification"
+      },
+      "abort": {
+        "reconfigure_successful": "La notification a été mise à jour.",
+        "edit_in_panel": "Cette notification utilise un modèle : modifie-la dans le panneau Awtrix Studio.",
+        "notifications_ng_only": "Les notifications demandent une horloge sous AWTRIX NG."
+      },
+      "error": {
+        "invalid_app_name": "Utilise des lettres, des chiffres, `_` ou `-` (32 caractères au plus).",
+        "app_name_exists": "Une notification de ce nom existe déjà sur cette horloge.",
+        "invalid_template": "Le texte n'est pas un modèle valide.",
+        "invalid_value": "Cette valeur n'est pas valide.",
+        "invalid_entity": "Choisis une entité.",
+        "invalid_color": "Cette couleur n'est pas valide."
+      },
+      "step": {
+        "user": {
+          "title": "Ajouter une notification",
+          "description": "Un message affiché sur l'horloge quand l'entité prend l'état choisi, et retiré quand elle le quitte. Rien n'est conservé sur l'horloge entre les deux.",
+          "data": {
+            "notification_name": "Nom",
+            "trigger_entity_id": "Entité déclencheuse",
+            "trigger_state": "Affichée quand l'état devient",
+            "entity_id": "Entité affichée",
+            "label": "Texte avant la valeur",
+            "icon": "Icône",
+            "color": "Couleur du texte",
+            "duration": "Durée",
+            "hold": "Reste jusqu'à fermeture",
+            "repeat": "Défilements",
+            "stack": "Faire la queue derrière les autres notifications",
+            "sound": "Son",
+            "dismiss_on_clear": "La retirer quand l'état se termine",
+            "cooldown": "Délai avant de pouvoir la réafficher"
+          },
+          "data_description": {
+            "notification_name": "Lettres, chiffres, `_` et `-`. Non modifiable ensuite : l'horloge ferme la notification par ce nom (AWTRIX NG).",
+            "trigger_state": "Par exemple `on`, `open` ou `home`.",
+            "icon": "Nom ou numéro d'une icône de l'horloge, ou `lametric:ID`.",
+            "duration": "Combien de temps elle reste, en secondes, sauf si elle est maintenue ou répétée.",
+            "hold": "Reste sur l'horloge jusqu'à ce que l'entité quitte l'état (ou qu'on la ferme).",
+            "repeat": "Combien de fois le texte défile. 0 utilise la durée.",
+            "sound": "Nom d'un fichier son stocké sur l'horloge. Vide : pas de son.",
+            "entity_id": "L'entité dont la valeur est affichée (facultatif). L'entité déclencheuse n'est jamais affichée.",
+            "label": "Un texte avant la valeur, par exemple `Secteur`.",
+            "cooldown": "Après un affichage, les nouveaux déclenchements sont ignorés pendant ce nombre de minutes. 0 : aucun délai."
+          }
+        },
+        "reconfigure": {
+          "title": "Modifier la notification",
+          "description": "Un message affiché sur l'horloge quand l'entité prend l'état choisi.",
+          "data": {
+            "trigger_entity_id": "Entité déclencheuse",
+            "trigger_state": "Affichée quand l'état devient",
+            "entity_id": "Entité affichée",
+            "label": "Texte avant la valeur",
+            "icon": "Icône",
+            "color": "Couleur du texte",
+            "duration": "Durée",
+            "hold": "Reste jusqu'à fermeture",
+            "repeat": "Défilements",
+            "stack": "Faire la queue derrière les autres notifications",
+            "sound": "Son",
+            "dismiss_on_clear": "La retirer quand l'état se termine",
+            "cooldown": "Délai avant de pouvoir la réafficher"
+          },
+          "data_description": {
+            "trigger_state": "Par exemple `on`, `open` ou `home`.",
+            "icon": "Nom ou numéro d'une icône de l'horloge, ou `lametric:ID`.",
+            "duration": "Combien de temps elle reste, en secondes, sauf si elle est maintenue ou répétée.",
+            "hold": "Reste sur l'horloge jusqu'à ce que l'entité quitte l'état (ou qu'on la ferme).",
+            "repeat": "Combien de fois le texte défile. 0 utilise la durée.",
+            "sound": "Nom d'un fichier son stocké sur l'horloge. Vide : pas de son.",
+            "entity_id": "L'entité dont la valeur est affichée (facultatif). L'entité déclencheuse n'est jamais affichée.",
+            "label": "Un texte avant la valeur, par exemple `Secteur`.",
+            "cooldown": "Après un affichage, les nouveaux déclenchements sont ignorés pendant ce nombre de minutes. 0 : aucun délai."
+          }
+        }
+      }
     }
   },
   "entity": {
@@ -239,6 +323,9 @@
       },
       "indicator": {
         "name": "Indicateur {number}"
+      },
+      "notification": {
+        "name": "Notification {name}"
       }
     }
   },
