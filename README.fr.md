@@ -117,9 +117,16 @@ AWTRIX 3 ne permet de réordonner les apps que par sa page web : Awtrix Studio u
 
 L'horloge a trois petits voyants colorés sur le bord droit de l'écran. Allumez-en un quand une porte est ouverte, affichez votre surplus solaire en couleur, signalez un nouveau courrier… En mode simple, c'est soit « allumé de cette couleur tant que cette entité est dans cet état », soit « toujours allumé, d'une couleur qui suit cette valeur », avec les mêmes dégradés que les apps. Clignotement ou fondu en option.
 
+
+### Notifications
+
+Une notification affiche un message sur l'horloge quand une entité *entre* dans un état : une sonnette, une alerte pluie ou orage, une porte restée ouverte. Choisissez l'entité et l'état qui la déclenchent (le déclencheur lui-même n'est jamais affiché), puis ce qu'il faut montrer : une ou deux lignes, chacune un texte et/ou la valeur d'une entité (unité, décimales, couleur, couleur selon la valeur), sur une ligne, sur deux lignes, ou en titre et valeur, avec une police et un alignement par ligne. Choisissez une icône, une durée, un nombre de défilements, un son, si elle reste jusqu'à sa fermeture et si elle fait la queue derrière les autres. Un *délai* empêche un nouveau déclenchement de l'afficher trop vite (un capteur de pluie qui bascule sans cesse, par exemple). Un aperçu montre le message exact envoyé à l'horloge, **Test** l'envoie (et la retire après 15 secondes), et chaque notification a son propre interrupteur. Le mode modèle permet d'écrire le JSON du firmware. Les notifications sont incluses dans l'export et l'import.
+
+Les notifications demandent **AWTRIX NG**. Chacune est envoyée avec son propre nom et fermée par ce nom : elle ne retire donc jamais la notification d'une autre automatisation. Elle peut être fermée quand l'entité quitte l'état, même si elle a été envoyée avant un redémarrage de Home Assistant. Rien n'est conservé entre deux redémarrages : au démarrage, chaque notification surveille simplement à nouveau son entité, et celle déjà affichée reste sur l'horloge jusqu'à sa fermeture. Comme une app, une notification doit tenir dans les 8187 octets de l'horloge (topic compris) : une notification trop grande n'est pas envoyée et le panneau en donne la raison.
+
 ### Partager et copier des apps
 
-**Exporter** enregistre les apps et indicateurs choisis dans un petit fichier JSON, ou les copie pour les coller dans un message de forum. **Importer** lit un tel fichier sur une autre horloge (ou un autre Home Assistant) et montre exactement ce qui va se passer avant de modifier quoi que ce soit : un nom déjà pris reçoit un nom libre ou peut remplacer l'app existante, les entités absentes de cette installation sont listées, et les modèles peuvent être lus avant d'être acceptés.
+**Exporter** enregistre les apps, indicateurs et notifications choisis dans un petit fichier JSON, ou les copie pour les coller dans un message de forum. **Importer** lit un tel fichier sur une autre horloge (ou un autre Home Assistant) et montre exactement ce qui va se passer avant de modifier quoi que ce soit : un nom déjà pris reçoit un nom libre ou peut remplacer l'app existante, les entités absentes de cette installation sont listées, et les modèles peuvent être lus avant d'être acceptés.
 
 Les apps simples décrivent *quoi* afficher, pas comment un firmware le dessine : elles passent donc d'AWTRIX 3 à AWTRIX NG et inversement. Les apps en mode modèle contiennent le JSON du firmware de leur horloge, et sont signalées si on les importe sur une horloge sous l'autre firmware.
 

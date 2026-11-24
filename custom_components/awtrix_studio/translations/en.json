@@ -230,6 +230,90 @@
           }
         }
       }
+    },
+    "notification": {
+      "entry_type": "Notification",
+      "initiate_flow": {
+        "user": "Add notification",
+        "reconfigure": "Edit notification"
+      },
+      "abort": {
+        "reconfigure_successful": "The notification has been updated.",
+        "edit_in_panel": "This notification uses a template: edit it in the Awtrix Studio panel.",
+        "notifications_ng_only": "Notifications need a clock running AWTRIX NG."
+      },
+      "error": {
+        "invalid_app_name": "Use letters, digits, `_` or `-` (32 characters at most).",
+        "app_name_exists": "A notification with this name already exists on this clock.",
+        "invalid_template": "The text is not a valid template.",
+        "invalid_value": "This value is not valid.",
+        "invalid_entity": "Choose an entity.",
+        "invalid_color": "This color is not valid."
+      },
+      "step": {
+        "user": {
+          "title": "Add a notification",
+          "description": "A message shown on the clock when the entity enters the chosen state, and taken off when it leaves it. Nothing is kept on the clock between the two.",
+          "data": {
+            "notification_name": "Name",
+            "trigger_entity_id": "Entity that triggers it",
+            "trigger_state": "Shown when the state becomes",
+            "entity_id": "Entity shown",
+            "label": "Text before the value",
+            "icon": "Icon",
+            "color": "Text color",
+            "duration": "Duration",
+            "hold": "Stay until dismissed",
+            "repeat": "Scroll repeats",
+            "stack": "Queue behind other notifications",
+            "sound": "Sound",
+            "dismiss_on_clear": "Take it off when the state ends",
+            "cooldown": "Delay before it can show again"
+          },
+          "data_description": {
+            "notification_name": "Letters, digits, `_` and `-`. It cannot be changed later: the clock dismisses the notification by this name (AWTRIX NG).",
+            "trigger_state": "For example `on`, `open` or `home`.",
+            "icon": "Name or number of an icon on the clock, or `lametric:ID`.",
+            "duration": "How long it stays, in seconds, unless it is held or repeats are set.",
+            "hold": "Stays on the clock until the entity leaves the state (or someone dismisses it).",
+            "repeat": "How many times the text scrolls. 0 uses the duration.",
+            "sound": "Name of a sound file stored on the clock. Leave empty for no sound.",
+            "entity_id": "The entity whose value is shown (optional). The trigger entity is never shown.",
+            "label": "A text before the value, e.g. `Mains power`.",
+            "cooldown": "After it is shown, new triggers are ignored for this many minutes. 0: no delay."
+          }
+        },
+        "reconfigure": {
+          "title": "Edit notification",
+          "description": "A message shown on the clock when the entity enters the chosen state.",
+          "data": {
+            "trigger_entity_id": "Entity that triggers it",
+            "trigger_state": "Shown when the state becomes",
+            "entity_id": "Entity shown",
+            "label": "Text before the value",
+            "icon": "Icon",
+            "color": "Text color",
+            "duration": "Duration",
+            "hold": "Stay until dismissed",
+            "repeat": "Scroll repeats",
+            "stack": "Queue behind other notifications",
+            "sound": "Sound",
+            "dismiss_on_clear": "Take it off when the state ends",
+            "cooldown": "Delay before it can show again"
+          },
+          "data_description": {
+            "trigger_state": "For example `on`, `open` or `home`.",
+            "icon": "Name or number of an icon on the clock, or `lametric:ID`.",
+            "duration": "How long it stays, in seconds, unless it is held or repeats are set.",
+            "hold": "Stays on the clock until the entity leaves the state (or someone dismisses it).",
+            "repeat": "How many times the text scrolls. 0 uses the duration.",
+            "sound": "Name of a sound file stored on the clock. Leave empty for no sound.",
+            "entity_id": "The entity whose value is shown (optional). The trigger entity is never shown.",
+            "label": "A text before the value, e.g. `Mains power`.",
+            "cooldown": "After it is shown, new triggers are ignored for this many minutes. 0: no delay."
+          }
+        }
+      }
     }
   },
   "entity": {
@@ -239,6 +323,9 @@
       },
       "indicator": {
         "name": "Indicator {number}"
+      },
+      "notification": {
+        "name": "Notification {name}"
       }
     }
   },

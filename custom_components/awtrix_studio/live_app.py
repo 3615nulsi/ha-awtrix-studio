@@ -106,6 +106,11 @@ class LiveApp:
         return self.config.name
 
     @property
+    def topic(self) -> str:
+        """Return the topic the app is published on."""
+        return self._topic
+
+    @property
     def enabled(self) -> bool:
         """Return True if the app is running."""
         return self._enabled
@@ -213,6 +218,18 @@ class LiveApp:
         self._last_payload = None
         if was_enabled:
             self._notify()
+
+    async def async_update_config(self, config: AppConfig) -> None:
+        """Use new settings without replacing the app (its switch keeps it).
+
+        The topic does not change: the name of an app cannot be edited.
+        """
+        was_enabled = self._enabled
+        if was_enabled:
+            await self.async_disable(remove=False)
+        self.config = config
+        if was_enabled:
+            await self.async_enable()
 
     async def async_remove_from_clock(self) -> None:
         """Remove the app from the clock, whatever its state."""

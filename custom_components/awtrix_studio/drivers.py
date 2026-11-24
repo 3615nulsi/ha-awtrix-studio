@@ -310,6 +310,17 @@ class FirmwareDriver(ABC):
         """Return the (topic, payload) setting the loop order over MQTT."""
         return None
 
+    # Notifications: a message that interrupts the loop, then goes away.
+
+    @property
+    def notify_topic(self) -> str | None:
+        """Return the topic taking a notification, if the firmware has one."""
+        return None
+
+    def dismiss_message(self, name: str) -> tuple[str, str] | None:
+        """Return the (topic, payload) taking a notification off the clock."""
+        return None
+
     # What the clock offers, and what it says about the commands it refuses.
 
     @property
@@ -637,6 +648,15 @@ class AwtrixNGDriver(FirmwareDriver):
                 apps.append(name)
         return LoopState(apps, disabled)
 
+    @property
+    def notify_topic(self) -> str:
+        """A notification is sent to `cmd/notify`."""
+        return f"{self.prefix}/cmd/notify"
+
+    def dismiss_message(self, name: str) -> tuple[str, str]:
+        """`cmd/notify/dismiss/<name>` takes exactly that notification off."""
+        return f"{self.prefix}/cmd/notify/dismiss/{name}", ""
+
     def order_message(self, order: list[str], disabled: list[str]) -> tuple[str, str]:
         """`apps/order` needs the complete list of switched-off apps."""
         return f"{self.prefix}/cmd/apps/order", json.dumps(
@@ -689,6 +709,7 @@ class AwtrixNGDriver(FirmwareDriver):
         return [
             f"{self.prefix}/cmd/apps/pushed/+/result",
             f"{self.prefix}/cmd/indicators/+/result",
+            f"{self.prefix}/cmd/notify/result",
         ]
 
     def parse_result(self, topic: str, payload: str) -> tuple[str, str | None] | None:

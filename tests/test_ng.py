@@ -494,6 +494,55 @@ async def test_oversized_payload_is_not_sent(
     assert app.clock_error == "nope"
 
 
+async def test_oversized_notification_is_not_sent(
+    hass: HomeAssistant, mqtt_mock: MqttMockHAClient
+) -> None:
+    """A notification goes through the same size check as an app: one too large
+    for the clock is not sent, and the reason is kept for the panel."""
+    notify_topic = f"{PREFIX}/cmd/notify"
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title=PREFIX,
+        unique_id=PREFIX,
+        data={"firmware": "awtrix_ng", "prefix": PREFIX},
+        subentries_data=[
+            ConfigSubentryDataWithId(
+                data={
+                    "mode": "template",
+                    "notification_name": "big",
+                    "trigger_entity_id": "binary_sensor.trigger",
+                    "trigger_state": "on",
+                    "template": "{{ {'text': 'x' * (states('input_number.n')"
+                    " | int(0))} | tojson }}",
+                },
+                subentry_id="notification_big",
+                subentry_type="notification",
+                title="big",
+                unique_id="notification:big",
+            )
+        ],
+    )
+    await setup(hass, entry)
+    rule = entry.runtime_data.notifications["notification_big"]
+
+    hass.states.async_set("input_number.n", "9000")
+    payload = json.dumps({"text": "x" * 9000, "name": "big"}, separators=(",", ":"))
+    size = len(notify_topic) + len(payload)
+    assert await rule.async_send() == (
+        f"message too large: {size} bytes with its topic (limit 8187)"
+    )
+    assert rule.last_error is not None
+    assert not published(mqtt_mock, notify_topic)
+
+    hass.states.async_set("input_number.n", "3")
+    assert await rule.async_send() is None
+    assert rule.last_error is None
+    assert json.loads(published(mqtt_mock, notify_topic)[-1]) == {
+        "text": "xxx",
+        "name": "big",
+    }
+
+
 async def test_oversized_test_payload(
     hass: HomeAssistant,
     hass_ws_client: WebSocketGenerator,
@@ -567,3 +616,53 @@ async def test_error_events(
     async_fire_mqtt_message(hass, f"{APP_TOPIC}/result", '{"ok":true}')
     await hass.async_block_till_done()
     assert app.clock_error is None
+
+
+async def test_the_clock_refusal_of_a_notification_is_kept(
+    hass: HomeAssistant, mqtt_mock: MqttMockHAClient
+) -> None:
+    """NG answers every notification on `cmd/notify/result`: a refusal is kept
+    on the notification last sent, for the panel, until one is accepted."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title=PREFIX,
+        unique_id=PREFIX,
+        data={"firmware": "awtrix_ng", "prefix": PREFIX},
+        subentries_data=[
+            ConfigSubentryDataWithId(
+                data={
+                    "mode": "template",
+                    "notification_name": "bell",
+                    "trigger_entity_id": "binary_sensor.trigger",
+                    "trigger_state": "on",
+                    "template": "{{ {'text': 'Ding'} | tojson }}",
+                },
+                subentry_id="notification_bell",
+                subentry_type="notification",
+                title="bell",
+                unique_id="notification:bell",
+            )
+        ],
+    )
+    await setup(hass, entry)
+    rule = entry.runtime_data.notifications["notification_bell"]
+    result_topic = f"{PREFIX}/cmd/notify/result"
+
+    # An answer before anything was sent is not about any notification.
+    async_fire_mqtt_message(hass, result_topic, '{"ok":false,"error":{"message":"x"}}')
+    await hass.async_block_till_done()
+    assert rule.last_error is None
+
+    assert await rule.async_send() is None
+    async_fire_mqtt_message(
+        hass,
+        result_topic,
+        json.dumps({"ok": False, "error": {"message": "unknown sound"}}),
+    )
+    await hass.async_block_till_done()
+    assert rule.clock_error == "unknown sound"
+    assert rule.last_error == "unknown sound"
+
+    async_fire_mqtt_message(hass, result_topic, '{"ok":true}')
+    await hass.async_block_till_done()
+    assert rule.last_error is None

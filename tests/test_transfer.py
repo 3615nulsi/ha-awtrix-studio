@@ -61,7 +61,33 @@ def expected_lingering_timers() -> bool:
     return True
 
 
+NOTIFICATION = {
+    "mode": "simple",
+    "notification_name": "doorbell",
+    "trigger_entity_id": "binary_sensor.doorbell",
+    "trigger_state": "on",
+    "dismiss_on_clear": True,
+    "entity_id": "binary_sensor.doorbell",
+    "label": "Ding dong",
+    "icon": "",
+    "color": [255, 140, 0],
+    "duration": 10,
+    "repeat": 0,
+    "hold": False,
+    "stack": True,
+    "sound": "",
+}
+
+
 def _subentry(data: dict[str, Any], kind: str, sid: str) -> ConfigSubentryDataWithId:
+    if kind == "notification":
+        return ConfigSubentryDataWithId(
+            data=data,
+            subentry_id=sid,
+            subentry_type=kind,
+            title=data["notification_name"],
+            unique_id=f"notification:{data['notification_name']}",
+        )
     is_app = kind == "app"
     return ConfigSubentryDataWithId(
         data=data,
@@ -73,13 +99,16 @@ def _subentry(data: dict[str, Any], kind: str, sid: str) -> ConfigSubentryDataWi
 
 
 async def _clock(
-    hass: HomeAssistant, prefix: str, subentries: list[ConfigSubentryDataWithId]
+    hass: HomeAssistant,
+    prefix: str,
+    subentries: list[ConfigSubentryDataWithId],
+    firmware: str = "awtrix3",
 ) -> MockConfigEntry:
     entry = MockConfigEntry(
         domain=DOMAIN,
         title=prefix,
         unique_id=prefix,
-        data={"firmware": "awtrix3", "prefix": prefix},
+        data={"firmware": firmware, "prefix": prefix},
         subentries_data=subentries,
     )
     entry.add_to_hass(hass)
@@ -475,3 +504,123 @@ async def test_label_color_and_default_icon_travel(
         if c.args[0] == "awtrix_other/custom/demo"
     ]
     assert json.loads(payloads[-1]) == {"text": "21", "icon": "sun"}
+
+
+async def test_notifications_are_exported_and_imported(
+    hass: HomeAssistant, hass_ws_client: WebSocketGenerator, mqtt_mock: MqttMockHAClient
+) -> None:
+    """A notification travels like an app, under its own name."""
+    hass.states.async_set("binary_sensor.doorbell", "off")
+    source = await _clock(
+        hass,
+        "awtrix_source",
+        [_subentry(NOTIFICATION, "notification", "s_bell")],
+        firmware="awtrix_ng",
+    )
+    client = await hass_ws_client(hass)
+    doc = await _ws(
+        client, {"type": "awtrix_studio/export", "entry_id": source.entry_id}
+    )
+    assert doc["items"] == [{"type": "notification", **NOTIFICATION}]
+
+    target = await _clock(hass, "awtrix_target", [], firmware="awtrix_ng")
+    result = await _ws(
+        client,
+        {"type": "awtrix_studio/import", "entry_id": target.entry_id, "document": doc},
+    )
+    assert result["imported"] == 1
+    await hass.async_block_till_done()
+    (subentry,) = target.subentries.values()
+    assert subentry.subentry_type == "notification"
+    assert subentry.title == "doorbell"
+    assert subentry.unique_id == "notification:doorbell"
+    # Checked and completed on the way in, so only what was given is compared.
+    for key in ("trigger_entity_id", "trigger_state", "entity_id", "label", "duration"):
+        assert subentry.data[key] == NOTIFICATION[key]
+    # It is a switch of the clock, like an app.
+    entities = er.async_entries_for_config_entry(er.async_get(hass), target.entry_id)
+    assert len(entities) == 1
+
+
+async def test_a_notification_does_not_clash_with_an_app_name(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    mqtt_mock: MqttMockHAClient,
+) -> None:
+    """Apps and notifications have separate names; a notification name taken by
+    another notification is renamed, one taken by an app is not a conflict."""
+    hass.states.async_set("binary_sensor.doorbell", "off")
+    hass.states.async_set("sensor.co2", "950")
+    target = await _clock(
+        hass,
+        "awtrix_target",
+        [
+            _subentry({**SIMPLE_APP, "app_name": "doorbell"}, "app", "t_app"),
+            _subentry(NOTIFICATION, "notification", "t_bell"),
+        ],
+        firmware="awtrix_ng",
+    )
+    client = await hass_ws_client(hass)
+    doc = {
+        "awtrix_studio": 1,
+        "items": [
+            {"type": "notification", **NOTIFICATION},
+            {"type": "notification", **NOTIFICATION, "notification_name": "other"},
+            {"type": "notification", **NOTIFICATION, "notification_name": "a b"},
+            {"type": ["notification"], **NOTIFICATION},
+        ],
+    }
+    plan = await _ws(
+        client,
+        {
+            "type": "awtrix_studio/import",
+            "entry_id": target.entry_id,
+            "document": doc,
+            "dry_run": True,
+        },
+    )
+    items = plan["items"]
+    assert (items[0]["action"], items[0]["target"], items[0]["error"]) == (
+        "add",
+        "doorbell_2",
+        None,
+    )
+    assert (items[1]["action"], items[1]["target"]) == ("add", "other")
+    assert (items[2]["action"], items[2]["target"], items[2]["error"]) == (
+        "add",
+        "a_b",
+        None,
+    )
+    assert items[3]["error"] == "unknown_type"
+
+
+async def test_a_notification_can_replace_another(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    mqtt_mock: MqttMockHAClient,
+) -> None:
+    """Choosing 'replace' updates the notification that has the name."""
+    hass.states.async_set("binary_sensor.doorbell", "off")
+    target = await _clock(
+        hass,
+        "awtrix_target",
+        [_subentry(NOTIFICATION, "notification", "t_bell")],
+        firmware="awtrix_ng",
+    )
+    client = await hass_ws_client(hass)
+    changed = {**NOTIFICATION, "label": "Someone is at the door"}
+    result = await _ws(
+        client,
+        {
+            "type": "awtrix_studio/import",
+            "entry_id": target.entry_id,
+            "document": {
+                "awtrix_studio": 1,
+                "items": [{"type": "notification", **changed}],
+            },
+            "choices": [{"action": "replace", "target": "doorbell"}],
+        },
+    )
+    assert result["imported"] == 1
+    assert len(target.subentries) == 1
+    assert target.subentries["t_bell"].data["label"] == "Someone is at the door"

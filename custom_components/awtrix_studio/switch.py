@@ -7,15 +7,24 @@ from typing import Any
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigSubentry
 from homeassistant.const import STATE_OFF
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import AwtrixStudioConfigEntry
-from .const import CONF_INDICATOR, CONF_PREFIX, DOMAIN, SUBENTRY_TYPE_INDICATOR
+from .const import (
+    CONF_INDICATOR,
+    CONF_PREFIX,
+    DOMAIN,
+    SUBENTRY_TYPE_INDICATOR,
+    SUBENTRY_TYPE_NOTIFICATION,
+    signal_new_items,
+)
 from .live_app import LiveApp
 from .manager import MANAGED_SUBENTRY_TYPES
+from .notifications import NotificationRule
 
 PARALLEL_UPDATES = 0
 
@@ -25,16 +34,35 @@ async def async_setup_entry(
     entry: AwtrixStudioConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Add a switch for every app and indicator of the clock.
+    """Add a switch for every app, indicator and notification of the clock.
 
     The switches share the clock's device, so they belong to the entry itself:
-    a device can only belong to one subentry.
+    a device can only belong to one subentry. Items added later, without
+    reloading the clock, get their switch through a signal.
     """
     manager = entry.runtime_data
-    async_add_entities(
-        AppSwitch(entry, subentry, manager.apps[subentry.subentry_id])
-        for subentry in entry.subentries.values()
-        if subentry.subentry_type in MANAGED_SUBENTRY_TYPES
+
+    @callback
+    def _add(subentry_ids: list[str]) -> None:
+        switches = []
+        for subentry_id in subentry_ids:
+            subentry = entry.subentries.get(subentry_id)
+            if subentry is None:
+                continue
+            if subentry.subentry_type == SUBENTRY_TYPE_NOTIFICATION:
+                item = manager.notifications.get(subentry_id)
+            elif subentry.subentry_type in MANAGED_SUBENTRY_TYPES:
+                item = manager.apps.get(subentry_id)
+            else:
+                continue
+            if item is not None:
+                switches.append(AppSwitch(entry, subentry, item))
+        if switches:
+            async_add_entities(switches)
+
+    _add(list(entry.subentries))
+    entry.async_on_unload(
+        async_dispatcher_connect(hass, signal_new_items(entry.entry_id), _add)
     )
 
 
@@ -48,7 +76,7 @@ class AppSwitch(SwitchEntity, RestoreEntity):
         self,
         entry: AwtrixStudioConfigEntry,
         subentry: ConfigSubentry,
-        app: LiveApp,
+        app: LiveApp | NotificationRule,
     ) -> None:
         """Initialize the switch."""
         self._app = app
@@ -58,6 +86,9 @@ class AppSwitch(SwitchEntity, RestoreEntity):
             self._attr_translation_placeholders = {
                 "number": subentry.data[CONF_INDICATOR]
             }
+        elif subentry.subentry_type == SUBENTRY_TYPE_NOTIFICATION:
+            self._attr_translation_key = "notification"
+            self._attr_translation_placeholders = {"name": app.name}
         else:
             self._attr_translation_key = "app"
             self._attr_translation_placeholders = {"app_name": app.name}

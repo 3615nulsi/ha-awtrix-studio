@@ -18,9 +18,18 @@ FIRMWARE_AWTRIX3: Final = "awtrix3"
 FIRMWARE_AWTRIX_NG: Final = "awtrix_ng"
 DEFAULT_PREFIX: Final = "awtrix"
 
+
+def signal_new_items(entry_id: str) -> str:
+    """Dispatcher signal: apps or notifications were added to a loaded clock."""
+    return f"{DOMAIN}_new_items_{entry_id}"
+
+
 # Subentry types
 SUBENTRY_TYPE_APP: Final = "app"
 SUBENTRY_TYPE_INDICATOR: Final = "indicator"
+# A notification is not a live app: nothing is kept on the clock. It is sent
+# when an entity enters a state (see notifications).
+SUBENTRY_TYPE_NOTIFICATION: Final = "notification"
 
 # How an app or indicator is described
 CONF_MODE: Final = "mode"
@@ -157,3 +166,36 @@ VALUE_FONTS: Final = (
     "matrix-light8x6",
 )
 TEXT_FONTS: Final = ("matrix-light6", "matrix-chunky6")
+
+
+# Notifications (config subentry) settings
+CONF_NOTIFICATION_NAME: Final = "notification_name"
+# The entity whose state triggers the notification (CONF_ENTITY_ID is the entity
+# the message shows, as in an app).
+CONF_TRIGGER_ENTITY: Final = "trigger_entity_id"
+CONF_TRIGGER_STATE: Final = "trigger_state"
+# The lines of a notification (a text and/or an entity each).
+LAYOUT_LINE: Final = "line"
+NOTIFICATION_LAYOUTS: Final = (LAYOUT_LINE, LAYOUT_TWO_LINES, LAYOUT_TITLE_VALUE)
+CONF_FONT: Final = "font"
+# Where a line sits in its place on the display (AWTRIX NG regions).
+CONF_ALIGN: Final = "align"
+LINE_ALIGNS: Final = ("start", "center", "end")
+CONF_TEXT: Final = "text"
+CONF_HOLD: Final = "hold"
+CONF_REPEAT: Final = "repeat"
+# Minutes during which a new trigger is ignored after one was shown.
+CONF_COOLDOWN: Final = "cooldown"
+MAX_NOTIFICATION_COOLDOWN: Final = 1440
+CONF_DURATION: Final = "duration"
+CONF_SOUND: Final = "sound"
+CONF_STACK: Final = "stack"
+# Take the notification off the clock when the entity leaves the state.
+CONF_DISMISS_ON_CLEAR: Final = "dismiss_on_clear"
+
+DEFAULT_TRIGGER_STATE: Final = "on"
+DEFAULT_NOTIFICATION_DURATION: Final = 10
+MAX_NOTIFICATION_DURATION: Final = 3600
+MAX_NOTIFICATION_REPEAT: Final = 100
+# How long a test notification stays before it is taken off the clock.
+NOTIFICATION_TEST_DURATION: Final = 15

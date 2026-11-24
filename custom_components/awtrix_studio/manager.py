@@ -23,6 +23,7 @@ from .const import (
     CONF_INDICATOR,
     CONF_LIFETIME,
     CONF_MODE,
+    CONF_NOTIFICATION_NAME,
     CONF_PAGE_INTERVAL,
     CONF_TEMPLATE,
     DEFAULT_CYCLE_ONLY_ON_SCREEN,
@@ -32,12 +33,14 @@ from .const import (
     MODE_SIMPLE,
     SUBENTRY_TYPE_APP,
     SUBENTRY_TYPE_INDICATOR,
+    SUBENTRY_TYPE_NOTIFICATION,
 )
 from .display import CONF_DISPLAY, default_icon
 from .drivers import DisplayInfo, FirmwareDriver, LoopState, Screen
 from .icons import IconStore
-from .live_app import AppConfig, LiveApp
+from .live_app import AppConfig, LiveApp, PublishCallback
 from .loop import clean_order, desired_loop
+from .notifications import NotificationRule, config_from_data
 from .templates import (
     InvalidSimpleOptionsError,
     build_app_template,
@@ -132,6 +135,11 @@ class ClockManager:
         self.files = ClockFiles(hass, driver)
         # Keyed by config subentry id.
         self.apps: dict[str, LiveApp] = {}
+        # Notifications, by config subentry id. They are not apps: nothing is
+        # kept on the clock, so they stay out of `apps` and of the loop.
+        self.notifications: dict[str, NotificationRule] = {}
+        self._last_notified: str | None = None
+        self._notification_sources: dict[str, dict[str, Any]] = {}
         self._unsubscribers: list[Callable[[], None]] = []
         self._current_app: str | None = None
         self._last_uptime: float | None = None
@@ -188,6 +196,11 @@ class ClockManager:
         for listener in list(self._listeners):
             listener()
 
+    @callback
+    def async_notify_changed(self) -> None:
+        """Tell the listeners (the panel) that apps were added or removed."""
+        self._notify()
+
     @property
     def prefix(self) -> str:
         """Return the clock's MQTT prefix."""
@@ -231,6 +244,125 @@ class ClockManager:
             if subentry.subentry_type in MANAGED_SUBENTRY_TYPES
         }
         return current == self._sources
+
+    def notifications_built_from(self, subentries: Iterable[ConfigSubentry]) -> bool:
+        """Return True if the notifications were built from these subentries."""
+        current = {
+            subentry.subentry_id: dict(subentry.data)
+            for subentry in subentries
+            if subentry.subentry_type == SUBENTRY_TYPE_NOTIFICATION
+        }
+        return current == self._notification_sources
+
+    @callback
+    def add_notification(self, subentry: ConfigSubentry) -> NotificationRule:
+        """Create the rule of a notification subentry (not enabled yet)."""
+        rule = NotificationRule(
+            self.hass,
+            self.driver,
+            config_from_data(subentry.data),
+            self._notification_publisher(subentry.subentry_id),
+        )
+        rule.async_add_listener(self._notify)
+        self.notifications[subentry.subentry_id] = rule
+        self._notification_sources[subentry.subentry_id] = dict(subentry.data)
+        return rule
+
+    def _notification_publisher(self, subentry_id: str) -> PublishCallback:
+        """Publish for one notification, remembering which one spoke last.
+
+        The clock's answer on `cmd/notify/result` does not say which
+        notification it is about: it is the last one sent.
+        """
+
+        async def publish(topic: str, payload: str) -> str | None:
+            error = await self.async_publish_raw(topic, payload)
+            if error is None and topic == self.driver.notify_topic:
+                self._last_notified = subentry_id
+            return error
+
+        return publish
+
+    async def async_publish_raw(self, topic: str, payload: str) -> str | None:
+        """Publish a message that is not an app (a notification, a dismissal).
+
+        Icons are resolved and the size is checked like for an app; nothing is
+        remembered about the topic. Return why it was not sent, if it was not.
+        """
+        payload = await self.icons.async_resolve(
+            payload, self.files, self.driver, topic
+        )
+        if (error := self._size_error(topic, payload)) is not None:
+            _LOGGER.warning("Not sending to %s: %s", topic, error)
+            return error
+        try:
+            await mqtt.async_publish(self.hass, topic, payload, qos=0, retain=False)
+        except HomeAssistantError as err:
+            _LOGGER.debug("Could not publish to %s: %s", topic, err)
+            return str(err)
+        return None
+
+    async def async_sync(self, subentries: Iterable[ConfigSubentry]) -> list[str]:
+        """Bring the apps, indicators and notifications in line with the
+        subentries, without touching the ones that did not change.
+
+        Return the ids of the new ones: they have no switch yet, and the
+        switch starts them. A changed one keeps its object (and its switch).
+        """
+        subentries = list(subentries)
+        added: list[str] = []
+        wanted = {
+            sub.subentry_id: sub
+            for sub in subentries
+            if sub.subentry_type in MANAGED_SUBENTRY_TYPES
+        }
+        for subentry_id in [i for i in self.apps if i not in wanted]:
+            app = self.apps.pop(subentry_id)
+            await app.async_disable(remove=False)
+            await app.async_remove_from_clock()
+            await app.async_shutdown()
+            self._by_topic.pop(app.topic, None)
+            self._app_topics.discard(app.topic)
+            self._shown_topics.discard(app.topic)
+            self._too_large.pop(app.topic, None)
+            self._sources.pop(subentry_id, None)
+        for subentry_id, subentry in wanted.items():
+            source = (subentry.subentry_type, dict(subentry.data))
+            if subentry_id not in self.apps:
+                self.add_app(subentry)
+                added.append(subentry_id)
+            elif self._sources[subentry_id] != source:
+                config = app_config_from_subentry(subentry, self.driver.firmware)
+                app = self.apps[subentry_id]
+                if config.name != app.name:
+                    raise ValueError("the name of an app cannot change")
+                await app.async_update_config(config)
+                self._sources[subentry_id] = source
+
+        wanted_notifications = {
+            sub.subentry_id: sub
+            for sub in subentries
+            if sub.subentry_type == SUBENTRY_TYPE_NOTIFICATION
+        }
+        stale = [i for i in self.notifications if i not in wanted_notifications]
+        for subentry_id in stale:
+            rule = self.notifications.pop(subentry_id)
+            await rule.async_disable(remove=False)
+            await rule.async_remove_from_clock()
+            await rule.async_shutdown()
+            self._notification_sources.pop(subentry_id, None)
+        for subentry_id, subentry in wanted_notifications.items():
+            data = dict(subentry.data)
+            if subentry_id not in self.notifications:
+                self.add_notification(subentry)
+                added.append(subentry_id)
+            elif self._notification_sources[subentry_id] != data:
+                rule = self.notifications[subentry_id]
+                if data[CONF_NOTIFICATION_NAME] != rule.name:
+                    raise ValueError("the name of a notification cannot change")
+                await rule.async_update_config(config_from_data(data))
+                self._notification_sources[subentry_id] = data
+        return added
 
     @callback
     def add_app(self, subentry: ConfigSubentry) -> LiveApp:
@@ -315,6 +447,8 @@ class ClockManager:
             self._republish_timer = None
         for app in self.apps.values():
             await app.async_shutdown()
+        for rule in self.notifications.values():
+            await rule.async_shutdown()
 
     async def async_send(self, message: tuple[str, str] | None) -> None:
         """Publish a (topic, payload) command, if the firmware has one."""
@@ -665,6 +799,15 @@ class ClockManager:
     @callback
     def _set_clock_error(self, topic: str, error: str | None) -> None:
         """Record the clock's answer on the app publishing to `topic`."""
+        if topic == self.driver.notify_topic:
+            rule = self.notifications.get(self._last_notified or "")
+            if rule is not None:
+                if error is not None and error != rule.clock_error:
+                    _LOGGER.warning(
+                        "The clock refused notification '%s': %s", rule.name, error
+                    )
+                rule.async_set_clock_error(error)
+            return
         if (app := self._by_topic.get(topic)) is None or topic in self._too_large:
             # Not ours, or about an older payload: the last one was not sent.
             return

@@ -22,7 +22,7 @@ const MIRROR_STALE_MS = 5000;
 // all of them in `segments`.
 const MAX_SEGMENTS = 5;
 const SEGMENT_KEYS = ["entity_id", "label", "label_color", "color", "decimals", "show_unit", "unit", "hide_when_zero", "threshold_1", "color_1",
-  "threshold_2", "color_2", "color_mode", "gradient", "_presetTouched", "gradient_min", "gradient_max", "gradient_stops"];
+  "threshold_2", "color_2", "color_mode", "gradient", "_presetTouched", "gradient_min", "gradient_max", "gradient_stops", "font", "align"];
 
 // AWTRIX 3 background effects, palettes and weather overlays.
 const EFFECTS = ["BrickBreaker", "Checkerboard", "ColorWaves", "Fade", "Fireworks", "LookingEyes", "Matrix", "MovingLine", "Pacifica",
@@ -32,6 +32,7 @@ const OVERLAYS = ["clear", "snow", "rain", "drizzle", "storm", "thunder", "frost
 const BUILTIN_APPS = ["Time", "Date", "Temperature", "Humidity", "Battery"];
 // Layouts of a simple app on a TC002 (AWTRIX NG), drawn on all 52 × 16 LEDs.
 const LAYOUTS = ["value", "title_value", "value_bar", "two_lines", "value_time"];
+const NOTIFICATION_LAYOUTS = ["line", "two_lines", "title_value"];
 // How AWTRIX NG moves a text too long for its place; "static" is `noScroll`.
 const SCROLL_MODES = ["wrap", "static", "loop", "bounce"];
 // Fonts a layout offers, all legible on the TC002; the first is the default.
@@ -57,6 +58,13 @@ const STARTER_INDICATOR_TEMPLATE = `{#- Render {"color": ...} to light the indic
 {%- else -%}
 {}
 {%- endif -%}`;
+
+// A template notification renders the firmware's own JSON; on AWTRIX NG the
+// notification's name is added for it.
+const NOTIFICATION_TEMPLATE = `{#- Render the notification's JSON. Keys: text, icon, color, duration (s), hold, repeat, sound. -#}
+{{ {"text": "Door " ~ states('binary_sensor.door'), "color": "#FF8C00", "duration": 10} | tojson }}`;
+const NG_NOTIFICATION_TEMPLATE = `{#- Render the notification's JSON. Keys: text, icon, textColor, durationMs, hold, repeat, sound. The name is added for you. -#}
+{{ {"text": "Door " ~ states('binary_sensor.door'), "textColor": "#FF8C00", "durationMs": 10000} | tojson }}`;
 
 const NG_STARTER_APP_TEMPLATE = `{#- Render a JSON object (one page) or a list of objects
     (pages that alternate). Any key of the AWTRIX NG pushed app API works;
@@ -232,6 +240,8 @@ dd { margin: 2px 0 0; font-weight: 500; }
 .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
 .field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .field.wide { grid-column: 1 / -1; }
+.section-title { grid-column: 1 / -1; margin: 10px 0 0; padding-top: 18px; border-top: 1px solid var(--divider-color, #e3e5e8); font-size: 16px; font-weight: 600; }
+.section-title.first { margin: 0; padding-top: 0; border-top: 0; }
 .field label, .field .label { font-size: 14px; font-weight: 500; }
 .field input[type=text], .field input[type=number], .field select, .field textarea {
   font: inherit; font-size: 15px; padding: 9px 11px; border-radius: 8px; width: 100%;
@@ -249,6 +259,7 @@ pre { margin: 0; padding: 12px; border-radius: 8px; font-family: var(--ha-font-f
 .pill { font-size: 12px; padding: 4px 10px; border-radius: 12px; background: rgba(127,127,127,.15); }
 .pill.active { background: var(--primary-color, #0277bd); color: var(--text-primary-color, #fff); }
 .banner { padding: 12px 16px; border-radius: 10px; background: rgba(219,68,55,.12); color: var(--error-color, #db4437); }
+.entity-picker { position: relative; }
 .entity-host ha-entity-picker { display: block; width: 100%; }
 .entity-list { position: absolute; z-index: 5; left: 0; right: 0; top: 100%; margin: 4px 0 0; padding: 4px; list-style: none; max-height: 280px; overflow: auto;
   background: var(--card-background-color, #fff); border: 1px solid var(--divider-color, #c4c7cc); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.25); }
@@ -256,6 +267,11 @@ pre { margin: 0; padding: 12px; border-radius: 8px; font-family: var(--ha-font-f
 .entity-list li.active, .entity-list li:hover { background: rgba(127,127,127,.16); }
 .entity-name { font-size: 14px; }
 .entity-id { font-size: 12px; }
+.notifications { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.notification { display: flex; align-items: center; gap: 12px; padding: 12px 14px; }
+.notification .grow { min-width: 0; overflow-wrap: anywhere; }
+.notification > :not(.grow) { flex: none; }
+.field textarea.short { min-height: 84px; font-family: inherit; font-size: 15px; }
 .banner.ok { background: rgba(67,160,71,.14); color: var(--success-color, #43a047); }
 .picker.confirm { width: min(420px, 100%); padding: 20px; display: flex; flex-direction: column; gap: 16px; }
 .feedback { font-size: 13px; color: var(--secondary-text-color, #5f6368); min-height: 18px; }
@@ -430,6 +446,10 @@ class AwtrixStudioPanel extends HTMLElement {
     this._snapshot = null;
     this._structure = "";
     this._screen = { pixels: null, at: 0 };
+    // What the previous clock was sending must stop: its screen would keep
+    // drawing over the new one.
+    this._stop("screen");
+    this._stop("preview");
     this._showOverview();
     this._subscribeSnapshot();
   }
@@ -443,7 +463,11 @@ class AwtrixStudioPanel extends HTMLElement {
 
   _subscribe(key, message, callback) {
     this._stop(key);
-    this._subs[key] = this._hass.connection.subscribeMessage(callback, message);
+    // An event of a clock that was left behind (still in flight) is ignored.
+    const entryId = message.entry_id;
+    this._subs[key] = this._hass.connection.subscribeMessage((event) => {
+      if (entryId === undefined || entryId === this._entryId) callback(event);
+    }, message);
     this._subs[key].catch((err) => {
       if (key !== "screen") this._banner(this.t("errors.request_failed", { detail: err.message || err.code || "" }));
     });
@@ -457,7 +481,7 @@ class AwtrixStudioPanel extends HTMLElement {
       if (this._view.name === "overview") this._updateOverview();
       // The clock tells its display size after the form was drawn: show the
       // layouts as soon as it does (the form keeps what was typed).
-      else if (this._view.name === "edit" && this._view.kind === "app" && layouts !== this._layoutsAvailable()) this._renderFields();
+      else if (this._view.name === "edit" && this._view.kind !== "indicator" && layouts !== this._layoutsAvailable()) this._renderFields();
     });
   }
 
@@ -559,6 +583,12 @@ class AwtrixStudioPanel extends HTMLElement {
     this._indicatorRow = h("div", { class: "indicators" });
     this._address = h("a", { target: "_blank", rel: "noopener noreferrer" });
     this._addressRow = h("div", { hidden: true }, h("dt", {}, this.t("clock_address")), h("dd", {}, this._address));
+    this._notificationList = h("div", { class: "notifications" });
+    this._notificationSection = h("section", { class: "notification-section", hidden: true },
+      h("div", { class: "row between" },
+        h("h2", {}, this.t("notifications")),
+        h("button", { class: "btn primary", onClick: () => this._openEditor("notification", null) }, icon("plus"), this.t("add_notification"))),
+      this._notificationList);
 
     this._main.append(
       this._notLoaded,
@@ -581,6 +611,7 @@ class AwtrixStudioPanel extends HTMLElement {
       this._grid,
       h("h2", {}, this.t("indicators")),
       this._indicatorRow,
+      this._notificationSection,
     );
     this._drawMirror();
     if (this._snapshot) this._updateOverview();
@@ -624,7 +655,35 @@ class AwtrixStudioPanel extends HTMLElement {
     }
     apps.forEach((item) => this._updateCard(item));
     this._updateIndicators();
+    this._updateNotifications();
     this._drawMirror();
+  }
+
+  /** The notifications of the clock: small, so they are rebuilt on every update. */
+  _updateNotifications() {
+    const supported = Boolean(this._snapshot?.features?.notifications);
+    this._notificationSection.hidden = !supported;
+    if (!supported) return;
+    clear(this._notificationList);
+    const items = this._items("notification");
+    if (!items.length) this._notificationList.append(h("div", { class: "muted" }, this.t("notifications_none")));
+    items.forEach((item) => {
+      const d = item.data;
+      let status = this.t("notification_waiting");
+      if (item.error) status = `${this.t("notification_error")} ${item.error}`;
+      else if (item.active) status = this.t("notification_active");
+      else if (item.last_sent) status = this.t("notification_last_sent", { time: new Date(item.last_sent).toLocaleTimeString() });
+      if (!item.enabled) status = this.t("disabled");
+      const toggle = h("button", { class: "switch", role: "switch", "aria-checked": item.enabled ? "true" : "false",
+        "aria-label": this.t("enable", { name: d.notification_name }),
+        onClick: () => this._call({ type: "awtrix_studio/enable", subentry_id: item.subentry_id, enabled: !item.enabled }) }, h("span"));
+      this._notificationList.append(h("div", { class: "card notification" },
+        h("div", { class: "grow" }, h("strong", {}, d.notification_name),
+          h("div", { class: "muted" }, `${d.trigger_entity_id} → ${d.trigger_state}`),
+          h("div", { class: "muted" }, status)),
+        toggle,
+        h("button", { class: "btn small", onClick: () => this._openEditor("notification", item.subentry_id) }, this.t("edit"))));
+    });
   }
 
   _buildCards(apps) {
@@ -783,12 +842,13 @@ class AwtrixStudioPanel extends HTMLElement {
   }
 
   _itemLabel(item) {
+    if (item.kind === "notification") return item.data.notification_name;
     return item.kind === "app" ? item.data.app_name : this.t("indicator_n", { n: item.data.indicator });
   }
 
   _openExport(preselected) {
     this._openPage("export", this.t("export_title"));
-    const items = [...this._items("app"), ...this._items("indicator")];
+    const items = [...this._items("app"), ...this._items("indicator"), ...this._items("notification")];
     const selected = new Set(preselected || items.map((i) => i.subentry_id));
     const feedback = h("div", { class: "feedback", role: "status" });
     const output = h("textarea", { class: "export-output", readonly: true, rows: 10, spellcheck: "false", "aria-label": this.t("export_content") });
@@ -940,12 +1000,12 @@ class AwtrixStudioPanel extends HTMLElement {
     const title = h("div", { class: "row" }, include,
       h("span", { class: "name" }, plan.kind === "indicator" ? this.t("indicator_n", { n: plan.name }) : plan.name || "?"),
       plan.mode ? h("span", { class: `chip ${plan.mode}` }, this.t(plan.mode)) : "",
-      plan.kind ? h("span", { class: "chip" }, this.t(plan.kind === "app" ? "kind_app" : "kind_indicator")) : "");
+      plan.kind ? h("span", { class: "chip" }, this.t(`kind_${plan.kind}`)) : "");
     const row = h("div", { class: `card pad import-item${choice.action === "skip" ? " dim" : ""}` }, title);
 
     if (!invalid && choice.action !== "skip") {
       let target;
-      if (plan.kind === "app") {
+      if (plan.kind !== "indicator") {
         target = h("input", { type: "text", value: choice.target, maxlength: 32, spellcheck: "false",
           onInput: (e) => { choice.target = e.target.value; if (choice.action === "replace") choice.action = "add"; replan(); } });
       } else {
@@ -953,13 +1013,13 @@ class AwtrixStudioPanel extends HTMLElement {
           ...["1", "2", "3"].map((n) => h("option", { value: n }, this.t(`indicator_${n}`))));
         target.value = choice.target;
       }
-      row.append(h("div", { class: "field" }, h("label", {}, this.t(plan.kind === "app" ? "import_as" : "import_on")), target));
+      row.append(h("div", { class: "field" }, h("label", {}, this.t(plan.kind !== "indicator" ? "import_as" : "import_on")), target));
       const taken = plan.error === "app_name_exists" || plan.error === "indicator_in_use" || choice.action === "replace";
       if (taken) {
         row.append(h("label", { class: "check" },
           h("input", { type: "checkbox", checked: choice.action === "replace",
             onChange: (e) => { choice.action = e.target.checked ? "replace" : "add"; replan(); } }),
-          h("span", {}, this.t(plan.kind === "app" ? "import_replace_app" : "import_replace_indicator"))));
+          h("span", {}, this.t({ app: "import_replace_app", notification: "import_replace_notification", indicator: "import_replace_indicator" }[plan.kind]))));
       }
     }
     if (plan.error && !(choice.action === "replace" && plan.replaces)) {
@@ -1059,6 +1119,7 @@ class AwtrixStudioPanel extends HTMLElement {
 
   _openEditor(kind, subentryId, presetIndicator) {
     const item = subentryId ? this._findItem(subentryId) : null;
+    this._stateOther = false;
     this._view = { name: "edit", kind, subentryId, item };
     this._previewTab = "sim";
     this._preview = { pages: [], error: null, template: null };
@@ -1068,6 +1129,7 @@ class AwtrixStudioPanel extends HTMLElement {
     this._clockSelect.hidden = true;
     this._form = this._initialForm(kind, item, presetIndicator);
     if (kind === "app") this._title.textContent = item ? `${this.t("edit_app")} ${item.data.app_name}` : this.t("new_app");
+    else if (kind === "notification") this._title.textContent = item ? `${this.t("edit_notification")} ${item.data.notification_name}` : this.t("new_notification");
     else this._title.textContent = item ? this.t("edit_indicator", { n: item.data.indicator }) : this.t("new_indicator");
     this._renderEditor();
     this._baseline = JSON.stringify(this._form);
@@ -1076,17 +1138,30 @@ class AwtrixStudioPanel extends HTMLElement {
 
   _initialForm(kind, item, presetIndicator) {
     const d = item ? item.data : {};
-    if (kind === "app") {
+    if (kind !== "indicator") {
       const segments = [d, ...(Array.isArray(d.segments) ? d.segments : [])].map((s) => this._segmentForm(s));
+      const notification = kind === "notification" ? {
+        notification_name: d.notification_name || "",
+        trigger_entity_id: d.trigger_entity_id || "",
+        trigger_state: d.trigger_state || "on",
+        dismiss_on_clear: d.dismiss_on_clear ?? true,
+        cooldown: d.cooldown ?? 0,
+        duration: d.duration ?? 10,
+        repeat: d.repeat ?? 0,
+        hold: d.hold ?? false,
+        stack: d.stack ?? true,
+        sound: d.sound || "",
+      } : {};
       return {
         mode: d.mode || "simple",
         app_name: d.app_name || "",
+        ...notification,
         ...segments[0],
         segments,
         segment: 0,
         separator: typeof d.separator === "string" ? d.separator : " ",
         icon: d.icon || "",
-        layout: d.layout || "",
+        layout: d.layout || (kind === "notification" && this._layoutsAvailable() ? "line" : ""),
         value_font: d.value_font || VALUE_FONTS[0],
         text_font: d.text_font || TEXT_FONTS[0],
         progress: d.progress ?? false,
@@ -1096,7 +1171,7 @@ class AwtrixStudioPanel extends HTMLElement {
         progress_same_color: !d.progress_color,
         progress_color: toHex(d.progress_color, "#4FC3F7"),
         progress_bg: toHex(d.progress_bg, "#2E2E2E"),
-        template: d.template || (this._isNG() ? NG_STARTER_APP_TEMPLATE : STARTER_APP_TEMPLATE),
+        template: d.template || this._starterTemplate(kind),
         page_interval: d.page_interval ?? 1.5,
         cycle_only_on_screen: d.cycle_only_on_screen ?? true,
         hide_when_empty: d.hide_when_empty ?? true,
@@ -1127,6 +1202,8 @@ class AwtrixStudioPanel extends HTMLElement {
       label: d.label || "",
       // Empty: the label takes the value's color.
       label_color: d.label_color ? toHex(d.label_color, "#FFFFFF") : "",
+      font: d.font || "",
+      align: d.align || "",
       color: toHex(d.color, "#FFFFFF"),
       decimals: d.decimals ?? "",
       show_unit: d.show_unit ?? true,
@@ -1270,7 +1347,7 @@ class AwtrixStudioPanel extends HTMLElement {
   }
 
   _segmentPayload(s) {
-    return { entity_id: s.entity_id, label: s.label, label_color: s.label_color, color: s.color, decimals: numberOrEmpty(s.decimals),
+    return { entity_id: s.entity_id, label: s.label, label_color: s.label_color, font: s.font, align: s.align, color: s.color, decimals: numberOrEmpty(s.decimals),
       show_unit: s.show_unit, unit: s.unit, hide_when_zero: s.hide_when_zero,
       threshold_1: numberOrEmpty(s.threshold_1), color_1: s.color_1, threshold_2: numberOrEmpty(s.threshold_2), color_2: s.color_2,
       ...this._gradientPayload(s) };
@@ -1279,6 +1356,7 @@ class AwtrixStudioPanel extends HTMLElement {
   _payload() {
     const f = this._form;
     const { kind } = this._view;
+    if (kind === "notification") return this._notificationPayload();
     if (kind === "app" && f.mode === "simple") {
       this._syncSegment();
       const [first, ...next] = f.segments.map((s) => this._segmentPayload(s));
@@ -1295,6 +1373,173 @@ class AwtrixStudioPanel extends HTMLElement {
         effect: f.effect, effect_interval: numberOrEmpty(f.effect_interval), ...this._gradientPayload() };
     }
     return { mode: "template", indicator: f.indicator, template: f.template };
+  }
+
+  _starterTemplate(kind) {
+    if (kind === "notification") return this._isNG() ? NG_NOTIFICATION_TEMPLATE : NOTIFICATION_TEMPLATE;
+    return this._isNG() ? NG_STARTER_APP_TEMPLATE : STARTER_APP_TEMPLATE;
+  }
+
+  /** A notification: what triggers it, and the app-like content to show. */
+  _notificationPayload() {
+    const f = this._form;
+    const base = { notification_name: f.notification_name, trigger_entity_id: f.trigger_entity_id, trigger_state: f.trigger_state,
+      dismiss_on_clear: f.dismiss_on_clear, cooldown: Number(f.cooldown) || 0 };
+    if (f.mode === "template") return { mode: "template", ...base, template: f.template };
+    this._syncSegment();
+    const [first, ...next] = f.segments.map((s) => this._segmentPayload(s));
+    return { mode: "simple", ...base, ...first, segments: next, icon: f.icon, layout: f.layout === "line" && !this._layoutsAvailable() ? "" : f.layout,
+      duration: Number(f.duration), repeat: Number(f.repeat), hold: f.hold, stack: f.stack, sound: f.sound };
+  }
+
+  _sectionTitle(key, first = false) {
+    return h("h3", { class: `section-title${first ? " first" : ""}` }, this.t(key));
+  }
+
+  /** What triggers a notification: a section of the form, not a block of its own. */
+  _notificationTriggerFields() {
+    const parts = [this._sectionTitle("notification_trigger", true)];
+    if (!this._view.item) {
+      parts.push(this._field("notification_name", this.t("notification_name"),
+        this._input("notification_name", "text", { maxlength: 32, spellcheck: "false" }), this.t("notification_name_help"), true));
+    }
+    parts.push(
+      this._field("trigger_entity_id", this.t("trigger_entity"), this._entityPicker("trigger_entity_id", this.t("entity_placeholder"), () => this._triggerEntityChanged()), this.t("trigger_entity_help"), true),
+      this._field("trigger_state", this.t("trigger_state"), this._triggerStateControl(), this.t("trigger_state_help")),
+      this._check("dismiss_on_clear", this.t("dismiss_on_clear"), this.t("dismiss_on_clear_help")),
+      this._field("cooldown", this.t("notification_cooldown"), this._input("cooldown", "number", { min: 0, max: 1440, step: 1 }), this.t("notification_cooldown_help")));
+    return parts;
+  }
+
+  /** The states an entity can be in, to offer instead of making the user type one. */
+  _stateOptions(entityId) {
+    const state = this._hass.states[entityId];
+    if (!state) return [];
+    const common = {
+      binary_sensor: ["on", "off"], input_boolean: ["on", "off"], switch: ["on", "off"], light: ["on", "off"],
+      fan: ["on", "off"], automation: ["on", "off"], siren: ["on", "off"], remote: ["on", "off"],
+      lock: ["locked", "unlocked", "locking", "unlocking", "jammed", "open"],
+      cover: ["open", "closed", "opening", "closing"], valve: ["open", "closed", "opening", "closing"],
+      person: ["home", "not_home"], device_tracker: ["home", "not_home"],
+      sun: ["above_horizon", "below_horizon"],
+      alarm_control_panel: ["disarmed", "armed_home", "armed_away", "armed_night", "armed_vacation", "armed_custom_bypass", "pending", "arming", "triggered"],
+      media_player: ["off", "on", "idle", "playing", "paused", "standby", "buffering"],
+      vacuum: ["docked", "cleaning", "returning", "idle", "paused", "error"],
+      input_select: state.attributes?.options || [], select: state.attributes?.options || [],
+    }[entityId.split(".")[0]] || [];
+    const own = Array.isArray(state.attributes?.options) ? state.attributes.options : [];
+    return [...new Set([...common, ...own, state.state, "unavailable", "unknown"])];
+  }
+
+  _triggerStateControl() {
+    this._stateHost = h("div", { class: "state-host" });
+    this._renderTriggerState();
+    return this._stateHost;
+  }
+
+  /** A list of the entity's states, with "Other…" to type one that is not in it. */
+  _renderTriggerState() {
+    const f = this._form;
+    const options = this._stateOptions(f.trigger_entity_id);
+    const typed = h("input", { id: "f-trigger_state", type: "text", value: f.trigger_state, maxlength: 64,
+      onInput: (e) => { f.trigger_state = e.target.value; this._schedulePreview(); } });
+    if (!options.length || this._stateOther) { this._stateHost.replaceChildren(typed); return; }
+    const values = options.includes(f.trigger_state) || !f.trigger_state ? options : [...options, f.trigger_state];
+    const select = h("select", { id: "f-trigger_state", onChange: (e) => {
+      if (e.target.value === "\u0000other") {
+        this._stateOther = true;
+        this._renderTriggerState();
+        this._stateHost.querySelector("input")?.focus();
+        return;
+      }
+      f.trigger_state = e.target.value;
+      this._schedulePreview();
+    } },
+    ...values.map((v) => h("option", { value: v }, v)),
+    h("option", { value: "\u0000other" }, this.t("trigger_state_other")));
+    select.value = f.trigger_state || values[0];
+    if (!f.trigger_state) f.trigger_state = select.value;
+    this._stateHost.replaceChildren(select);
+  }
+
+  _triggerEntityChanged() {
+    const options = this._stateOptions(this._form.trigger_entity_id);
+    this._stateOther = false;
+    if (options.length && !options.includes(this._form.trigger_state)) this._form.trigger_state = options[0];
+    this._renderTriggerState();
+    this._schedulePreview();
+  }
+
+  /** One, two or title + value: only where the clock can draw layouts. */
+  _notificationLayoutField() {
+    if (!this._layoutsAvailable()) return null;
+    const f = this._form;
+    const select = h("select", { id: "f-layout", onChange: (e) => this._setNotificationLayout(e.target.value) },
+      ...NOTIFICATION_LAYOUTS.map((v) => h("option", { value: v }, this.t(`nlayout_${v}`))));
+    select.value = f.layout || "line";
+    return this._field("layout", this.t("notification_layout"), select, this.t(`nlayout_${f.layout || "line"}_help`), true);
+  }
+
+  _setNotificationLayout(value) {
+    const f = this._form;
+    this._syncSegment();
+    const count = value === "line" ? 1 : 2;
+    while (f.segments.length < count) f.segments.push(this._segmentForm({}));
+    f.segments.splice(count);
+    // A title is 7 pixels high: only the small fonts fit.
+    if (value === "title_value" && !TEXT_FONTS.includes(f.segments[0].font)) f.segments[0].font = "";
+    f.layout = value;
+    f.segment = Math.min(f.segment, count - 1);
+    SEGMENT_KEYS.forEach((key) => { f[key] = f.segments[f.segment][key]; });
+    this._renderFields();
+    this._schedulePreview();
+  }
+
+  /** The lines of a notification: each a text and/or an entity, in its own font. */
+  _notificationLinesSection() {
+    const f = this._form;
+    const many = f.segments.length > 1;
+    const lineName = (i) => (f.layout === "title_value" ? this.t(i === 0 ? "line_title" : "line_value") : this.t("line_n", { n: i + 1 }));
+    const fieldset = h("fieldset", { class: "field wide" }, h("legend", {}, this.t(many ? "lines" : "line")));
+    if (many) {
+      const tabs = h("div", { class: "tabs segment-tabs", role: "tablist", "aria-label": this.t("lines") });
+      f.segments.forEach((_s, i) => tabs.append(h("button", { role: "tab", type: "button", "aria-selected": i === f.segment ? "true" : "false",
+        onClick: () => { if (i !== f.segment) this._selectSegment(i); } }, lineName(i))));
+      fieldset.append(tabs);
+    }
+    const fonts = f.layout === "title_value" && f.segment === 0 ? TEXT_FONTS : [...VALUE_FONTS, ...TEXT_FONTS];
+    const font = h("select", { id: "f-font", onChange: (e) => { f.font = e.target.value; this._syncSegment(); this._schedulePreview(); } },
+      h("option", { value: "" }, this.t("font_default")), ...fonts.map((v) => h("option", { value: v }, this.t(`font_${v}`))));
+    font.value = fonts.includes(f.font) ? f.font : "";
+    const align = h("select", { id: "f-align", onChange: (e) => { f.align = e.target.value; this._syncSegment(); this._schedulePreview(); } },
+      ...["", "start", "end"].map((v) => h("option", { value: v }, this.t(`align_${v || "center"}`))));
+    align.value = f.align || "";
+    const placed = this._layoutsAvailable() && f.layout;
+    const fontField = placed ? this._field("font", this.t("line_font"), font, this.t("line_font_help")) : null;
+    const alignField = placed ? this._field("align", this.t("line_align"), align, this.t("line_align_help")) : null;
+    fieldset.append(h("div", { class: "fields" },
+      this._field("label", this.t("line_text"), this._input("label", "text", { maxlength: 64 }), this.t("line_text_help"), true),
+      this._field("entity_id", this.t("line_entity"), this._entityInput(), this.t("line_entity_help"), true),
+      fontField,
+      alignField,
+      this._field("color", this.t("text_color"), this._input("color", "color")),
+      this._field("decimals", this.t("decimals"), this._input("decimals", "number", { min: 0, max: 4, step: 1 }), this.t("decimals_help")),
+      this._check("hide_when_zero", this.t("hide_when_zero")),
+      this._unitFields(),
+      this._colorSection(["fixed", "steps", "gradient"], "color_by_value")));
+    return fieldset;
+  }
+
+  /** How the notification is shown on the clock: a section, at the level of the others. */
+  _notificationTimingFields() {
+    return [
+      this._sectionTitle("notification_timing"),
+      this._field("duration", this.t("notification_duration"), this._input("duration", "number", { min: 1, max: 3600, step: 1 }), this.t("notification_duration_help")),
+      this._field("repeat", this.t("notification_repeat"), this._input("repeat", "number", { min: 0, max: 100, step: 1 }), this.t("notification_repeat_help")),
+      this._check("hold", this.t("notification_hold"), this.t("notification_hold_help")),
+      this._check("stack", this.t("notification_stack"), this.t("notification_stack_help")),
+      this._field("sound", this.t("notification_sound"), this._input("sound", "text", { maxlength: 64, spellcheck: "false" }), this.t("notification_sound_help")),
+    ];
   }
 
   _renderEditor() {
@@ -1335,14 +1580,14 @@ class AwtrixStudioPanel extends HTMLElement {
       h("div", { class: "row between" }, this._modeTabs, actions),
       this._saveFeedback,
       h("div", { class: "editor" },
-        h("section", { class: "card pad form", "aria-label": kind === "app" ? this.t("edit_app") : this.t("indicator") }, this._fieldsBox),
+        h("section", { class: "card pad form", "aria-label": { app: this.t("edit_app"), notification: this.t("notifications") }[kind] || this.t("indicator") }, this._fieldsBox),
         h("section", { class: "preview" },
           h("div", { class: "card pad", style: "display:flex;flex-direction:column;gap:12px" },
             h("div", { class: "row between" }, h("h2", {}, this.t("preview")), this._previewTabs),
             h("div", { class: "screen", style: "align-self:center" }, this._previewCanvas),
             this._pills, this._previewNote, this._previewStatus, this._previewDetail,
             h("div", { class: "row" }, h("button", { class: "btn", onClick: () => this._test() }, this.t("test")),
-              h("span", { class: "muted" }, this.t("test_note"))),
+              h("span", { class: "muted" }, this.t(kind === "notification" ? "notification_test_note" : "test_note"))),
             this._testFeedback),
           // Useful to look at, rarely needed: closed until asked for.
           h("details", { class: "card pad" }, h("summary", {}, this.t("json_title")), this._json),
@@ -1701,6 +1946,7 @@ class AwtrixStudioPanel extends HTMLElement {
     const box = this._fieldsBox;
     Array.from(this._modeTabs.children).forEach((tab, i) => tab.setAttribute("aria-selected", ["simple", "template"][i] === f.mode ? "true" : "false"));
 
+    if (kind === "notification") box.append(...this._notificationTriggerFields());
     if (kind === "app" && !item) box.append(this._field("app_name", this.t("app_name"), this._input("app_name", "text", { maxlength: 32, spellcheck: "false" }), this.t("app_name_help"), true));
     if (kind === "indicator" && !item) {
       const used = this._items("indicator").map((i) => i.data.indicator);
@@ -1714,7 +1960,8 @@ class AwtrixStudioPanel extends HTMLElement {
       const textarea = h("textarea", { id: "f-template", spellcheck: "false", rows: 16,
         onInput: (e) => { f.template = e.target.value; this._schedulePreview(); } });
       textarea.value = f.template;
-      box.append(this._field("template", this.t("template_label"), textarea, kind === "app" ? this.t("template_help") : this.t("template_help_indicator"), true));
+      box.append(this._field("template", this.t("template_label"), textarea, { app: this.t("template_help"), notification: this.t("notification_template_help") }[kind] || this.t("template_help_indicator"), true));
+      if (kind === "notification") box.append(this._iconField());
       if (kind === "app") {
         box.append(
           this._iconField(),
@@ -1727,7 +1974,12 @@ class AwtrixStudioPanel extends HTMLElement {
       return;
     }
 
-    if (kind === "app") {
+    if (kind === "notification") {
+      append(box, this._sectionTitle("notification_content"), this._notificationLayoutField(), this._notificationLinesSection(), this._iconField(),
+        ...this._notificationTimingFields());
+      return;
+    }
+    if (kind !== "indicator") {
       append(box, this._layoutField(), this._fontFields(), this._segmentsSection(), this._iconField());
       if (f.segments.length > 1 && !f.layout) {
         box.append(this._field("separator", this.t("separator"), this._input("separator", "text", { maxlength: 8, spellcheck: "false" }),
@@ -2315,7 +2567,8 @@ class AwtrixStudioPanel extends HTMLElement {
 
   async _save() {
     const { kind, subentryId } = this._view;
-    const message = { type: "awtrix_studio/save", kind, data: this._payload() };
+    const message = kind === "notification" ? { type: "awtrix_studio/notification/save", data: this._payload() }
+      : { type: "awtrix_studio/save", kind, data: this._payload() };
     if (subentryId) message.subentry_id = subentryId;
     const result = await this._call(message);
     if (!result) return;
@@ -2326,7 +2579,7 @@ class AwtrixStudioPanel extends HTMLElement {
 
   async _delete() {
     const { item, kind } = this._view;
-    const name = kind === "app" ? item.data.app_name : this.t("indicator_n", { n: item.data.indicator });
+    const name = this._itemLabel(item);
     if (!(await this._confirm(this.t("delete_confirm", { name }), this.t("delete"), true))) return;
     const result = await this._call({ type: "awtrix_studio/delete", subentry_id: item.subentry_id });
     if (result !== null) {
@@ -2339,11 +2592,18 @@ class AwtrixStudioPanel extends HTMLElement {
     const { kind, subentryId } = this._view;
     const data = this._payload();
     if (kind === "app" && !subentryId && !data.app_name) { this._showErrors({ app_name: "invalid_app_name" }); return; }
-    const message = { type: "awtrix_studio/test", kind, data, page: this._pageIndex };
+    const message = kind === "notification" ? { type: "awtrix_studio/notification/test", data }
+      : { type: "awtrix_studio/test", kind, data, page: this._pageIndex };
     if (subentryId) message.subentry_id = subentryId;
     const result = await this._call(message);
     if (!result) return;
-    if (result.errors) { this._showErrors(result.errors, result.detail); return; }
+    if (result.errors) {
+      this._showErrors(result.errors, result.detail);
+      // Shown here too: the form's own message may be out of sight.
+      const key = Object.values(result.errors)[0];
+      this._testFeedback.textContent = `${this.t(`errors.${key}`)}${result.detail ? ` ${result.detail}` : ""}`;
+      return;
+    }
     this._testFeedback.textContent = this.t("test_sent");
     setTimeout(() => { this._testFeedback.textContent = ""; }, 4000);
   }

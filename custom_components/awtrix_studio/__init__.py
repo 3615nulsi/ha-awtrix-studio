@@ -22,10 +22,13 @@ from . import websocket
 from .const import (
     CONF_APP_ORDER,
     CONF_FIRMWARE,
+    CONF_NOTIFICATION_NAME,
     CONF_PREFIX,
     DATA_ICONS,
     DOMAIN,
     SERVICE_REFRESH,
+    SUBENTRY_TYPE_NOTIFICATION,
+    signal_new_items,
 )
 from .drivers import get_driver
 from .icons import IconStore
@@ -40,6 +43,8 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 # Latest pending reload per clock, to reload once after a burst of changes.
 _PENDING_RELOADS: dict[str, object] = {}
+# The same, for the changes applied without reloading the clock.
+_PENDING_SYNCS: dict[str, object] = {}
 
 type AwtrixStudioConfigEntry = ConfigEntry[ClockManager]
 
@@ -78,6 +83,8 @@ async def async_setup_entry(
     for subentry in entry.subentries.values():
         if subentry.subentry_type in MANAGED_SUBENTRY_TYPES:
             manager.add_app(subentry)
+        elif subentry.subentry_type == SUBENTRY_TYPE_NOTIFICATION:
+            manager.add_notification(subentry)
     await manager.async_start()
     manager.set_order(entry.options.get(CONF_APP_ORDER), initial=True)
     entry.runtime_data = manager
@@ -138,19 +145,39 @@ async def async_remove_entry(
         if subentry.subentry_type in MANAGED_SUBENTRY_TYPES:
             topic = subentry_topic(driver, subentry)
             await _async_remove_from_clock(hass, topic, driver.remove_payload)
+        elif (
+            subentry.subentry_type == SUBENTRY_TYPE_NOTIFICATION
+            and (
+                message := driver.dismiss_message(
+                    str(subentry.data.get(CONF_NOTIFICATION_NAME, ""))
+                )
+            )
+            is not None
+        ):
+            await _async_remove_from_clock(hass, *message)
 
 
 async def _async_update_listener(
     hass: HomeAssistant, entry: AwtrixStudioConfigEntry
 ) -> None:
     """Apply app additions, edits and deletions, a new loop order, or a new
-    prefix, firmware or web page password (the clock was reconfigured)."""
+    prefix, firmware or web page password (the clock was reconfigured).
+
+    Only a new prefix or firmware reloads the clock. Changes to apps,
+    indicators and notifications are applied to those alone, so the others
+    are not published again and the panel keeps its state.
+    """
     manager = entry.runtime_data
     moved = (
         manager.prefix != entry.data[CONF_PREFIX]
         or manager.driver.firmware != entry.data[CONF_FIRMWARE]
     )
-    if not moved and manager.built_from(entry.subentries.values()):
+    subentries = list(entry.subentries.values())
+    if (
+        not moved
+        and manager.built_from(subentries)
+        and manager.notifications_built_from(subentries)
+    ):
         # Only the clock's options or credentials changed: no need to reload
         # the apps.
         manager.files.set_credentials(
@@ -158,17 +185,56 @@ async def _async_update_listener(
         )
         manager.set_order(entry.options.get(CONF_APP_ORDER))
         return
+    if not moved:
+        await _async_apply_changes(hass, entry)
+        return
     # With a new prefix or firmware, every app leaves its old topic: the
     # reload publishes them on the new ones.
-    removed = list(manager.apps) if moved else _removed_app_ids(manager, entry)
-    for subentry_id in removed:
-        app = manager.apps[subentry_id]
+    await _async_reload(hass, entry, list(manager.apps))
+
+
+async def _async_apply_changes(
+    hass: HomeAssistant, entry: AwtrixStudioConfigEntry
+) -> None:
+    """Apply the changed apps and notifications without reloading the clock."""
+    # Several changes in a row (an import) call this once each: only the last
+    # call applies them all.
+    token = object()
+    _PENDING_SYNCS[entry.entry_id] = token
+    await asyncio.sleep(0)
+    if _PENDING_SYNCS.get(entry.entry_id) is not token:
+        return
+    del _PENDING_SYNCS[entry.entry_id]
+    manager = entry.runtime_data
+    try:
+        added = await manager.async_sync(entry.subentries.values())
+        _async_tidy_registries(hass, entry)
+        manager.set_order(entry.options.get(CONF_APP_ORDER))
+        if added:
+            async_dispatcher_send(hass, signal_new_items(entry.entry_id), added)
+        manager.async_notify_changed()
+    except Exception:
+        _LOGGER.exception(
+            "Could not apply the changes of %s one by one, reloading it", entry.title
+        )
+        await _async_reload(hass, entry, _removed_app_ids(manager, entry))
+
+
+async def _async_reload(
+    hass: HomeAssistant, entry: AwtrixStudioConfigEntry, leaving: list[str]
+) -> None:
+    """Take the apps in `leaving` off the clock, then reload it."""
+    manager = entry.runtime_data
+    for subentry_id in leaving:
+        app = manager.apps.get(subentry_id)
+        if app is None:
+            continue
         # The app's switch may already be gone (and the app stopped) by now,
         # so remove the app from the clock explicitly.
         await app.async_disable(remove=False)
         await app.async_remove_from_clock()
-    # Several changes in a row (an import) call this once each: only the last
-    # call reloads the clock.
+    # Several changes in a row call this once each: only the last call
+    # reloads the clock.
     token = object()
     _PENDING_RELOADS[entry.entry_id] = token
     await asyncio.sleep(0)

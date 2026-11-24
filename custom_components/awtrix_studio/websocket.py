@@ -41,6 +41,7 @@ from .const import (
     CONF_FIRMWARE,
     CONF_INDICATOR,
     CONF_MODE,
+    CONF_NOTIFICATION_NAME,
     CONF_PREFIX,
     CONF_TEMPLATE,
     DATA_ICONS,
@@ -48,12 +49,19 @@ from .const import (
     MODE_SIMPLE,
     SUBENTRY_TYPE_APP,
     SUBENTRY_TYPE_INDICATOR,
+    SUBENTRY_TYPE_NOTIFICATION,
 )
 from .display import CONF_DISPLAY, apply_display, default_icon
 from .drivers import Screen
 from .icons import IconError, IconStore, convert, large_pixels
 from .loop import MAX_APP_NAME, MAX_LOOP, clean_order
 from .manager import MANAGED_SUBENTRY_TYPES, ClockManager
+from .notifications import (
+    NotificationRule,
+    config_from_data,
+    normalize_notification,
+    notification_template,
+)
 from .pages import InvalidPagesError, parse_pages, serialize_page
 from .templates import (
     InvalidSimpleOptionsError,
@@ -72,9 +80,10 @@ from .transfer import (
 from .validation import Invalid, normalize
 
 KIND = vol.In(MANAGED_SUBENTRY_TYPES)
+PREVIEW_KIND = vol.In((*MANAGED_SUBENTRY_TYPES, SUBENTRY_TYPE_NOTIFICATION))
 ENTRY_ID = vol.All(str, vol.Length(min=1, max=64))
 SUBENTRY_ID = vol.All(str, vol.Length(min=1, max=64))
-DATA = vol.All(dict, vol.Length(max=48))
+DATA = vol.All(dict, vol.Length(max=96))
 SNAPSHOT_COALESCE = 0.1
 
 
@@ -92,6 +101,8 @@ def async_setup(hass: HomeAssistant) -> None:
         ws_screen,
         ws_preview,
         ws_save,
+        ws_notification_save,
+        ws_notification_test,
         ws_delete,
         ws_enable,
         ws_test,
@@ -149,6 +160,24 @@ def _snapshot(entry: ConfigEntry, manager: ClockManager | None) -> dict[str, Any
                 "clock_error": app.clock_error if app else None,
             }
         )
+    for subentry_id, subentry in entry.subentries.items():
+        if subentry.subentry_type != SUBENTRY_TYPE_NOTIFICATION:
+            continue
+        rule = manager.notifications.get(subentry_id) if manager else None
+        items.append(
+            {
+                "subentry_id": subentry_id,
+                "kind": SUBENTRY_TYPE_NOTIFICATION,
+                "title": subentry.title,
+                "data": dict(subentry.data),
+                "enabled": bool(rule and rule.enabled),
+                "active": bool(rule and rule.active),
+                "last_sent": rule.last_sent.isoformat()
+                if rule and rule.last_sent
+                else None,
+                "error": rule.last_error if rule else None,
+            }
+        )
     driver = manager.driver if manager else None
     return {
         "entry_id": entry.entry_id,
@@ -176,12 +205,15 @@ def _snapshot(entry: ConfigEntry, manager: ClockManager | None) -> dict[str, Any
             "navigate": bool(driver and driver.navigate(True)),
             "order": bool(driver and driver.can_reorder),
             "icon_files": bool(driver and driver.icon_file("") is not None),
+            "notifications": bool(driver and driver.notify_topic),
         },
         "items": items,
     }
 
 
 def _build_template(entry: ConfigEntry, kind: str, data: dict[str, Any]) -> str:
+    if kind == SUBENTRY_TYPE_NOTIFICATION:
+        return notification_template(config_from_data(data))
     if data[CONF_MODE] != MODE_SIMPLE:
         return data[CONF_TEMPLATE]
     firmware = entry.data[CONF_FIRMWARE]
@@ -197,6 +229,9 @@ def _add_item(
     if kind == SUBENTRY_TYPE_INDICATOR:
         title = f"Indicator {data[CONF_INDICATOR]}"
         unique_id = f"indicator:{data[CONF_INDICATOR]}"
+    elif kind == SUBENTRY_TYPE_NOTIFICATION:
+        title = data[CONF_NOTIFICATION_NAME]
+        unique_id = f"notification:{title}"
     else:
         title = unique_id = data[CONF_APP_NAME]
     subentry = ConfigSubentry(
@@ -348,7 +383,7 @@ async def ws_screen(
     {
         vol.Required("type"): "awtrix_studio/preview",
         vol.Required("entry_id"): ENTRY_ID,
-        vol.Required("kind"): KIND,
+        vol.Required("kind"): PREVIEW_KIND,
         vol.Optional("subentry_id"): SUBENTRY_ID,
         vol.Required("data"): DATA,
     }
@@ -373,7 +408,12 @@ def ws_preview(
 
     connection.send_result(msg["id"])
     try:
-        data = normalize(hass, entry, kind, msg["data"], subentry_id, preview=True)
+        if kind == SUBENTRY_TYPE_NOTIFICATION:
+            data = normalize_notification(
+                hass, entry, msg["data"], subentry_id, preview=True
+            )
+        else:
+            data = normalize(hass, entry, kind, msg["data"], subentry_id, preview=True)
         template_str = _build_template(entry, kind, data)
         template = Template(template_str, hass)
         template.ensure_valid()
@@ -413,7 +453,7 @@ def ws_preview(
                 }
             )
             return
-        if kind == SUBENTRY_TYPE_INDICATOR:
+        if kind in (SUBENTRY_TYPE_NOTIFICATION, SUBENTRY_TYPE_INDICATOR):
             pages = pages[:1]
         else:
             pages = apply_display(
@@ -474,6 +514,96 @@ def ws_save(
 
     subentry = _add_item(hass, entry, kind, data)
     connection.send_result(msg["id"], {"subentry_id": subentry.subentry_id})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "awtrix_studio/notification/save",
+        vol.Required("entry_id"): ENTRY_ID,
+        vol.Optional("subentry_id"): SUBENTRY_ID,
+        vol.Required("data"): DATA,
+    }
+)
+@websocket_api.require_admin
+@callback
+def ws_notification_save(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
+) -> None:
+    """Create or update a notification."""
+    entry = _entry(hass, msg["entry_id"])
+    if entry is None:
+        _error(connection, msg, websocket_api.ERR_NOT_FOUND, "Unknown clock")
+        return
+    subentry_id = msg.get("subentry_id")
+    if subentry_id is not None and (
+        subentry_id not in entry.subentries
+        or entry.subentries[subentry_id].subentry_type != SUBENTRY_TYPE_NOTIFICATION
+    ):
+        _error(connection, msg, websocket_api.ERR_NOT_FOUND, "Unknown item")
+        return
+    try:
+        data = normalize_notification(hass, entry, msg["data"], subentry_id)
+    except Invalid as err:
+        connection.send_result(
+            msg["id"], {"errors": {err.field: err.key}, "detail": err.detail}
+        )
+        return
+    if subentry_id is not None:
+        hass.config_entries.async_update_subentry(
+            entry, entry.subentries[subentry_id], data=data
+        )
+        connection.send_result(msg["id"], {"subentry_id": subentry_id})
+        return
+    name = data[CONF_NOTIFICATION_NAME]
+    subentry = ConfigSubentry(
+        data=MappingProxyType(data),
+        subentry_type=SUBENTRY_TYPE_NOTIFICATION,
+        title=name,
+        unique_id=f"notification:{name}",
+    )
+    hass.config_entries.async_add_subentry(entry, subentry)
+    connection.send_result(msg["id"], {"subentry_id": subentry.subentry_id})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "awtrix_studio/notification/test",
+        vol.Required("entry_id"): ENTRY_ID,
+        vol.Optional("subentry_id"): SUBENTRY_ID,
+        vol.Required("data"): DATA,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_notification_test(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
+) -> None:
+    """Show an unsaved notification on the clock for a few seconds."""
+    entry = _entry(hass, msg["entry_id"])
+    manager = _manager(entry) if entry else None
+    if entry is None or manager is None:
+        _error(connection, msg, websocket_api.ERR_NOT_FOUND, "Unknown clock")
+        return
+    subentry_id = msg.get("subentry_id")
+    if subentry_id is not None and subentry_id not in entry.subentries:
+        _error(connection, msg, websocket_api.ERR_NOT_FOUND, "Unknown item")
+        return
+    try:
+        data = normalize_notification(hass, entry, msg["data"], subentry_id)
+    except Invalid as err:
+        connection.send_result(
+            msg["id"], {"errors": {err.field: err.key}, "detail": err.detail}
+        )
+        return
+    rule = NotificationRule(
+        hass, manager.driver, config_from_data(data), manager.async_publish_raw
+    )
+    if (error := await rule.async_test()) is not None:
+        connection.send_result(
+            msg["id"], {"errors": {"base": "notification_failed"}, "detail": error}
+        )
+        return
+    connection.send_result(msg["id"], {"published": True})
 
 
 @websocket_api.websocket_command(
