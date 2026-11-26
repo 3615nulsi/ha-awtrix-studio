@@ -22,7 +22,7 @@ const MIRROR_STALE_MS = 5000;
 // all of them in `segments`.
 const MAX_SEGMENTS = 5;
 const SEGMENT_KEYS = ["entity_id", "label", "label_color", "color", "decimals", "show_unit", "unit", "hide_when_zero", "threshold_1", "color_1",
-  "threshold_2", "color_2", "color_mode", "gradient", "_presetTouched", "gradient_min", "gradient_max", "gradient_stops", "font", "align"];
+  "threshold_2", "color_2", "color_mode", "gradient", "_presetTouched", "gradient_min", "gradient_max", "gradient_stops", "font", "align", "attribute"];
 
 // AWTRIX 3 background effects, palettes and weather overlays.
 const EFFECTS = ["BrickBreaker", "Checkerboard", "ColorWaves", "Fade", "Fireworks", "LookingEyes", "Matrix", "MovingLine", "Pacifica",
@@ -1199,6 +1199,7 @@ class AwtrixStudioPanel extends HTMLElement {
   _segmentForm(d) {
     return {
       entity_id: d.entity_id || "",
+      attribute: d.attribute || "",
       label: d.label || "",
       // Empty: the label takes the value's color.
       label_color: d.label_color ? toHex(d.label_color, "#FFFFFF") : "",
@@ -1347,7 +1348,7 @@ class AwtrixStudioPanel extends HTMLElement {
   }
 
   _segmentPayload(s) {
-    return { entity_id: s.entity_id, label: s.label, label_color: s.label_color, font: s.font, align: s.align, color: s.color, decimals: numberOrEmpty(s.decimals),
+    return { entity_id: s.entity_id, attribute: s.attribute, label: s.label, label_color: s.label_color, font: s.font, align: s.align, color: s.color, decimals: numberOrEmpty(s.decimals),
       show_unit: s.show_unit, unit: s.unit, hide_when_zero: s.hide_when_zero,
       threshold_1: numberOrEmpty(s.threshold_1), color_1: s.color_1, threshold_2: numberOrEmpty(s.threshold_2), color_2: s.color_2,
       ...this._gradientPayload(s) };
@@ -1614,6 +1615,7 @@ class AwtrixStudioPanel extends HTMLElement {
 
   _entityChanged() {
     const f = this._form;
+    this._followAttribute();
     if (this._unitInput) this._unitInput.placeholder = this._entityUnit() || this.t("custom_unit_placeholder");
     if (f.color_mode !== "gradient" || f.gradient === "custom" || !this._hass.states[f.entity_id]) { this._updateGradientBar(); return; }
     const hadRange = f.gradient_min !== "" || f.gradient_max !== "";
@@ -1691,6 +1693,40 @@ class AwtrixStudioPanel extends HTMLElement {
    * load it (it is loaded on demand, and may be missing in a custom panel);
    * otherwise our own search field stays, so the field is never empty.
    */
+  /** What to read of the entity: a weather entity has no number as its state, but a temperature. */
+  _followAttribute() {
+    const f = this._form;
+    const attributes = this._hass.states[f.entity_id]?.attributes;
+    if (!attributes) return;
+    if (f.attribute && !(f.attribute in attributes)) f.attribute = "";
+    if (!f.attribute && f.entity_id.startsWith("weather.") && "temperature" in attributes) {
+      f.attribute = "temperature";
+      if (!f.unit && attributes.temperature_unit) f.unit = attributes.temperature_unit;
+      if (this._unitInput) this._unitInput.value = f.unit;
+    }
+    this._renderAttribute();
+  }
+
+  /** Read the state of the entity, or one of its attributes. */
+  _attributeField() {
+    this._attributeHost = h("div", { class: "entity-host" });
+    this._renderAttribute();
+    return this._field("attribute", this.t("attribute"), this._attributeHost, this.t("attribute_help"));
+  }
+
+  _renderAttribute() {
+    if (!this._attributeHost) return;
+    const f = this._form;
+    const attributes = this._hass.states[f.entity_id]?.attributes || {};
+    const names = Object.keys(attributes).filter((key) => ["string", "number"].includes(typeof attributes[key]));
+    if (f.attribute && !names.includes(f.attribute)) names.push(f.attribute);
+    const select = h("select", { id: "f-attribute", onChange: (e) => { f.attribute = e.target.value; this._schedulePreview(); } },
+      h("option", { value: "" }, this.t("attribute_state")),
+      ...names.sort().map((name) => h("option", { value: name }, name)));
+    select.value = f.attribute;
+    this._attributeHost.replaceChildren(select);
+  }
+
   _entityPicker(key, placeholder, onChange) {
     const host = h("div", { class: "entity-host" }, this._searchPicker(key, placeholder, onChange));
     const swap = () => {
@@ -2087,6 +2123,7 @@ class AwtrixStudioPanel extends HTMLElement {
     }
     fieldset.append(h("div", { class: "fields" },
       this._field("entity_id", this.t("entity"), this._entityInput(), null, true),
+      this._attributeField(),
       f.layout === "title_value"
         ? this._field("label", this.t("title_label"), this._input("label", "text", { maxlength: 64 }), this.t("title_label_help"))
         : this._field("label", this.t("label"), this._input("label", "text", { maxlength: 64 }), this.t("label_help")),
