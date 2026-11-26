@@ -42,6 +42,11 @@ from .const import (
     CONF_HIDE_WHEN_EMPTY,
     CONF_HIDE_WHEN_ZERO,
     CONF_ICON,
+    CONF_ICON_ENTITY,
+    CONF_ICON_MIN,
+    CONF_ICON_MODE,
+    CONF_ICON_STATES,
+    CONF_ICON_STEPS,
     CONF_INDICATOR,
     CONF_LABEL,
     CONF_LABEL_COLOR,
@@ -80,10 +85,15 @@ from .const import (
     EFFECTS,
     FIRMWARE_AWTRIX_NG,
     GRADIENT_CUSTOM,
+    ICON_BY_STATE,
+    ICON_FIXED,
+    ICON_MODES,
     INDICATORS,
     LAYOUT_TWO_LINES,
     LAYOUT_VALUE_BAR,
     LAYOUTS,
+    MAX_ICON_STATES,
+    MAX_ICON_STEPS,
     MAX_LIFETIME,
     MAX_PAGE_INTERVAL,
     MAX_SEGMENTS,
@@ -305,6 +315,81 @@ def _segment(data: Mapping[str, Any]) -> dict[str, Any]:
     return clean
 
 
+def _icon_rules(data: Mapping[str, Any]) -> dict[str, Any]:
+    """How the icon is chosen: by the state of an entity, or by its value.
+
+    The fixed icon (`icon`) is the one for any other case, so it is required
+    once there are rules. An app saved before `icon_mode` existed, with a table
+    of states, follows its state. Nothing is kept for a fixed icon.
+    """
+    mode = data.get(CONF_ICON_MODE)
+    if mode in (None, ""):
+        mode = ICON_BY_STATE if data.get(CONF_ICON_STATES) else ICON_FIXED
+    if mode not in ICON_MODES:
+        raise Invalid(CONF_ICON_MODE, "invalid_value")
+    if mode == ICON_FIXED:
+        return {}
+    clean: dict[str, Any] = {}
+    entity = data.get(CONF_ICON_ENTITY)
+    if entity not in (None, ""):
+        if not isinstance(entity, str) or not ENTITY_ID_RE.fullmatch(entity):
+            raise Invalid(CONF_ICON_ENTITY, "invalid_entity")
+        clean[CONF_ICON_ENTITY] = entity
+    if mode == ICON_BY_STATE:
+        rules: dict[str, Any] = {CONF_ICON_STATES: _icon_states(data)}
+    else:
+        rules = {CONF_ICON_STEPS: _icon_steps(data)}
+    if not next(iter(rules.values())):
+        return {}
+    if not _text(data, CONF_ICON):
+        raise Invalid(CONF_ICON, "icon_default_required")
+    return {CONF_ICON_MODE: mode, **clean, **rules}
+
+
+def _icon_states(data: Mapping[str, Any]) -> dict[str, str]:
+    table = data.get(CONF_ICON_STATES)
+    if table is None:
+        return {}
+    if not isinstance(table, Mapping) or len(table) > MAX_ICON_STATES:
+        raise Invalid(CONF_ICON_STATES, "invalid_value")
+    icons: dict[str, str] = {}
+    for state in table:
+        if not isinstance(state, str) or not state.strip() or len(state) > MAX_TEXT:
+            raise Invalid(CONF_ICON_STATES, "invalid_value")
+        if name := _text(table, state):
+            icons[state.strip()] = name
+    return icons
+
+
+def _icon_steps(data: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """The steps, from the lowest value up: `min` and above shows `icon`."""
+    steps = data.get(CONF_ICON_STEPS)
+    if steps is None:
+        return []
+    if not isinstance(steps, list) or len(steps) > MAX_ICON_STEPS:
+        raise Invalid(CONF_ICON_STEPS, "invalid_value")
+    clean: dict[float, dict[str, Any]] = {}
+    for step in steps:
+        if not isinstance(step, Mapping):
+            raise Invalid(CONF_ICON_STEPS, "invalid_value")
+        try:
+            low = _number(step, CONF_ICON_MIN, -1e9, 1e9)
+            name = _text(step, CONF_ICON)
+        except Invalid as err:
+            raise Invalid(CONF_ICON_STEPS, "invalid_value") from err
+        if low is None:
+            raise Invalid(CONF_ICON_STEPS, "invalid_value")
+        if not name:
+            continue
+        if low in clean:
+            raise Invalid(CONF_ICON_STEPS, "invalid_value")
+        clean[low] = {
+            CONF_ICON_MIN: int(low) if low == int(low) else low,
+            CONF_ICON: name,
+        }
+    return [clean[low] for low in sorted(clean)]
+
+
 def _segments(data: Mapping[str, Any]) -> dict[str, Any]:
     """The next entities of a simple app, and what separates them.
 
@@ -425,6 +510,7 @@ def normalize_app(
             CONF_ICON: _text(data, CONF_ICON),
         }
         clean.update(_segments(data))
+        clean.update(_icon_rules(data))
         layout = _layout(
             data, entry.data[CONF_FIRMWARE], len(clean.get(CONF_SEGMENTS, []))
         )

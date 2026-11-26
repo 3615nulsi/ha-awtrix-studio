@@ -99,6 +99,16 @@ L'app quitte aussi la rotation d'elle-même tant que son entité est indisponibl
 
 Sous **Entité**, **Valeur à afficher** liste les attributs de l'entité. Choisis-en un pour l'afficher à la place de l'état : la `temperature` d'une entité météo, la `battery` d'un appareil, etc. Choisir une entité météo sélectionne sa température pour toi. L'unité est celle de l'attribut quand Home Assistant en donne une (`temperature_unit`, `pressure_unit`…), sinon aucune ; la barre de progression suit la même valeur.
 
+### Une icône qui change
+
+Dans une application simple, le champ **Icône** a trois modes :
+
+- **Fixe** : toujours la même icône.
+- **Par état** : une icône par état d'une entité, tirée de la galerie LaMetric (animées comprises). Le tableau commence par les états que l'entité peut avoir : les conditions d'une entité météo, allumé et éteint pour une porte ou une lumière, les options d'un select. Tape un autre état pour l'ajouter. Une icône de pluie quand la météo dit `rainy`, une porte ouverte quand le capteur dit `on`.
+- **Par valeur** : des paliers, « à partir de cette valeur, cette icône ». Pour une batterie : 0, 20, 50, 80 et 95 %. La valeur est celle de l'application (l'attribut qu'elle affiche, si tu en as choisi un), ou l'état d'une autre entité.
+
+L'icône fixe sert pour tout autre état, sous le premier palier, et quand la valeur n'est pas un nombre. Les icônes du tableau et des paliers sont téléchargées, et les animées déposées sur l'horloge, dès le démarrage de l'application : le premier changement affiche tout de suite la bonne icône.
+
 ### Le mode modèle : liberté totale
 
 Pour aller plus loin (dessins, barres de progression, plusieurs pages), écrivez un modèle Home Assistant qui produit le JSON de l'horloge. L'aperçu montre chaque page, les fait alterner comme l'horloge, et signale tout de suite ce qui cloche. Ici, les deux prochains trams, un par ligne d'un TC002.

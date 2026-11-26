@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from collections.abc import Iterable
 from io import BytesIO
 import json
 import logging
@@ -344,6 +345,24 @@ class IconStore:
         ):
             await self._resolve_layout(page, layout, files, limit)
         return _dumps(page)
+
+    async def async_prepare(
+        self, names: Iterable[str], files: ClockFiles | None = None
+    ) -> None:
+        """Get icons ready before they are first shown.
+
+        The gallery's icons are downloaded, and the animated ones stored on the
+        clock when `files` is given, so that the first change of an icon that
+        follows an entity does not wait for them.
+        """
+        for name in names:
+            if (lametric_id := await _gallery_id(name, files)) is None:
+                continue
+            icon = await self.async_get(lametric_id)
+            if files is not None and icon is not None and "gif" in icon:
+                await files.async_ensure(
+                    str(lametric_id), base64.b64decode(icon["gif"]), "gif"
+                )
 
     async def _resolve_page_icon(
         self,

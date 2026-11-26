@@ -10,7 +10,7 @@ often it updates.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import logging
@@ -57,6 +57,11 @@ class AppConfig:
     display: Mapping[str, Any] = field(default_factory=dict)
     # Icon given to the pages that name none (template apps).
     icon: str | None = None
+    # Icons the app may show later (an icon that follows an entity): got ready
+    # when the app starts. `inline` when they are drawn inside a layout, where
+    # nothing is stored on the clock.
+    icons: tuple[str, ...] = ()
+    icons_inline: bool = False
 
 
 class LiveApp:
@@ -68,9 +73,12 @@ class LiveApp:
         driver: FirmwareDriver,
         config: AppConfig,
         publish: PublishCallback,
+        *,
         topic: str | None = None,
+        prepare: Callable[[Sequence[str], bool], Awaitable[None]] | None = None,
     ) -> None:
         """Initialize the app (nothing runs until it is enabled)."""
+        self._prepare_icons = prepare
         self.hass = hass
         self.driver = driver
         self.config = config
@@ -189,6 +197,11 @@ class LiveApp:
         )
         # The tracker does not report the first render by itself.
         self._tracker.async_refresh()
+        if self.config.icons and self._prepare_icons is not None:
+            self.hass.async_create_background_task(
+                self._prepare_icons(self.config.icons, self.config.icons_inline),
+                f"awtrix_studio icons {self.name}",
+            )
         self._notify()
 
         if self.config.lifetime > 0:
