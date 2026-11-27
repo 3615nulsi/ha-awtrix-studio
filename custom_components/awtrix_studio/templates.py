@@ -24,6 +24,7 @@ from .const import (
     COLOR_STEPS,
     CONF_ACTIVE_STATE,
     CONF_ALIGN,
+    CONF_ATTRIBUTE,
     CONF_COLOR,
     CONF_COLOR_1,
     CONF_COLOR_2,
@@ -263,7 +264,7 @@ def build_app_template(
 
     lines = [
         HEADER,
-        f"{{%- set raw = states({jinja_str(entity)}) -%}}",
+        *_raw_lines(options),
         "{%- set num = raw | float if raw | is_number else none -%}",
         "{%- if raw in ['unknown', 'unavailable', ''] -%}",
         "[]",
@@ -315,7 +316,7 @@ def _build_line_template(options: Mapping[str, Any], firmware: str) -> str:
             added = f"{label}, {value}"
         lines += [
             f"{{#- Entity {number}: {entity} -#}}",
-            f"{{%- set raw = states({jinja_str(entity)}) -%}}",
+            *_raw_lines(segment),
             "{%- set num = raw | float if raw | is_number else none -%}",
             f"{{%- if {shown} -%}}",
             *_text_lines(segment),
@@ -350,6 +351,18 @@ def _text_region(
     )
 
 
+def _raw_lines(options: Mapping[str, Any]) -> list[str]:
+    """Lines reading the value of an entity: its state, or one of its attributes."""
+    entity = _entity_id(options.get(CONF_ENTITY_ID))
+    attribute = str(options.get(CONF_ATTRIBUTE) or "").strip()
+    if not attribute:
+        return [f"{{%- set raw = states({jinja_str(entity)}) -%}}"]
+    return [
+        f"{{%- set raw = state_attr({jinja_str(entity)}, {jinja_str(attribute)}) -%}}",
+        "{%- set raw = '' if raw is none else raw -%}",
+    ]
+
+
 def _icon_regions(icon: str) -> tuple[int, int, str]:
     """Where the text starts, how wide it is, and the regions of the icon.
 
@@ -379,7 +392,7 @@ def _entity_block(
     return [
         f"{{#- Line {number}: {entity} -#}}",
         *init,
-        f"{{%- set raw = states({jinja_str(entity)}) -%}}",
+        *_raw_lines(segment),
         "{%- set num = raw | float if raw | is_number else none -%}",
         f"{{%- if {shown} -%}}",
         *_text_lines(segment),
@@ -514,7 +527,6 @@ def _two_lines(
 
 def _bar_lines(options: Mapping[str, Any], entity: str, box: str) -> list[str]:
     """Lines adding a progress bar region, from a value between min and max."""
-    source = _entity_id(options.get(CONF_PROGRESS_ENTITY) or entity)
     low, high = _progress_range(options)
     bar = (
         jinja_str(rgb_to_hex(options[CONF_PROGRESS_COLOR], DEFAULT_COLOR))
@@ -524,7 +536,7 @@ def _bar_lines(options: Mapping[str, Any], entity: str, box: str) -> list[str]:
     track = jinja_str(rgb_to_hex(options.get(CONF_PROGRESS_BG), DEFAULT_PROGRESS_BG))
     return [
         "{#- Progress bar: the value between min and max, as 0 to 100. -#}",
-        f"{{%- set p = states({jinja_str(source)}) -%}}",
+        f"{{%- set p = {_progress_source(options, entity)} -%}}",
         "{%- if p | is_number -%}",
         f"{{%- set ratio = (p | float - {low!r}) / {high - low!r} -%}}",
         '{%- set regions = regions + [{"id": "bar", "box": ' + box + ","
@@ -575,10 +587,16 @@ def _text_lines(options: Mapping[str, Any], *, with_label: bool = True) -> list[
         lines.append(f"{{%- set label = {jinja_str(label + ' ')} -%}}")
     if show_unit:
         custom_unit = str(options.get(CONF_UNIT) or "").strip()
+        attribute = str(options.get(CONF_ATTRIBUTE) or "").strip()
+        # An attribute has its own unit, when Home Assistant gives one
+        # (`temperature_unit`, `pressure_unit`…); the entity's is not its.
+        own_unit = jinja_str(
+            f"{attribute}_unit" if attribute else "unit_of_measurement"
+        )
         unit = (
             jinja_str(custom_unit)
             if custom_unit
-            else f"state_attr({jinja_str(entity)}, 'unit_of_measurement') or ''"
+            else f"state_attr({jinja_str(entity)}, {own_unit}) or ''"
         )
         lines += [
             f"{{%- set unit = {unit} -%}}",
@@ -646,12 +664,23 @@ def _color_lines(options: Mapping[str, Any]) -> list[str]:
     return lines
 
 
+def _progress_source(options: Mapping[str, Any], entity: str) -> str:
+    """The Jinja expression of the value the progress bar follows."""
+    if options.get(CONF_PROGRESS_ENTITY):
+        return f"states({jinja_str(_entity_id(options[CONF_PROGRESS_ENTITY]))})"
+    if attribute := str(options.get(CONF_ATTRIBUTE) or "").strip():
+        return f"state_attr({jinja_str(entity)}, {jinja_str(attribute)})"
+    return f"states({jinja_str(entity)})"
+
+
 def _progress_lines(
     options: Mapping[str, Any], entity: str, keys: Mapping[str, str]
 ) -> list[str]:
-    """Lines adding a progress bar to `page`, from a value between min and max."""
-    source = options.get(CONF_PROGRESS_ENTITY) or entity
-    source = _entity_id(source)
+    """Lines adding a progress bar to `page`, from a value between min and max.
+
+    The value is that of the progress entity or, without one, the one the text
+    shows: the entity's state, or its attribute.
+    """
     low, high = _progress_range(options)
     bar = (
         jinja_str(rgb_to_hex(options[CONF_PROGRESS_COLOR], DEFAULT_COLOR))
@@ -663,7 +692,7 @@ def _progress_lines(
     )
     return [
         "{#- Progress bar: the value between min and max, as 0 to 100. -#}",
-        f"{{%- set p = states({jinja_str(source)}) -%}}",
+        f"{{%- set p = {_progress_source(options, entity)} -%}}",
         "{%- if p | is_number -%}",
         f"{{%- set ratio = (p | float - {low!r}) / {high - low!r} -%}}",
         "{%- set page = dict(page, progress=([[ratio * 100, 0] | max, 100] | min)"

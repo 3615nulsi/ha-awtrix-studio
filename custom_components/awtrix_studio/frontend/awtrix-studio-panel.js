@@ -22,7 +22,7 @@ const MIRROR_STALE_MS = 5000;
 // all of them in `segments`.
 const MAX_SEGMENTS = 5;
 const SEGMENT_KEYS = ["entity_id", "label", "label_color", "color", "decimals", "show_unit", "unit", "hide_when_zero", "threshold_1", "color_1",
-  "threshold_2", "color_2", "color_mode", "gradient", "_presetTouched", "gradient_min", "gradient_max", "gradient_stops", "font", "align"];
+  "threshold_2", "color_2", "color_mode", "gradient", "_presetTouched", "gradient_min", "gradient_max", "gradient_stops", "font", "align", "attribute"];
 
 // AWTRIX 3 background effects, palettes and weather overlays.
 const EFFECTS = ["BrickBreaker", "Checkerboard", "ColorWaves", "Fade", "Fireworks", "LookingEyes", "Matrix", "MovingLine", "Pacifica",
@@ -1199,6 +1199,7 @@ class AwtrixStudioPanel extends HTMLElement {
   _segmentForm(d) {
     return {
       entity_id: d.entity_id || "",
+      attribute: d.attribute || "",
       label: d.label || "",
       // Empty: the label takes the value's color.
       label_color: d.label_color ? toHex(d.label_color, "#FFFFFF") : "",
@@ -1347,7 +1348,7 @@ class AwtrixStudioPanel extends HTMLElement {
   }
 
   _segmentPayload(s) {
-    return { entity_id: s.entity_id, label: s.label, label_color: s.label_color, font: s.font, align: s.align, color: s.color, decimals: numberOrEmpty(s.decimals),
+    return { entity_id: s.entity_id, attribute: s.attribute, label: s.label, label_color: s.label_color, font: s.font, align: s.align, color: s.color, decimals: numberOrEmpty(s.decimals),
       show_unit: s.show_unit, unit: s.unit, hide_when_zero: s.hide_when_zero,
       threshold_1: numberOrEmpty(s.threshold_1), color_1: s.color_1, threshold_2: numberOrEmpty(s.threshold_2), color_2: s.color_2,
       ...this._gradientPayload(s) };
@@ -1614,8 +1615,15 @@ class AwtrixStudioPanel extends HTMLElement {
 
   _entityChanged() {
     const f = this._form;
+    this._followAttribute();
+    this._shownChanged();
+  }
+
+  /** What the app shows changed (its entity or attribute): the unit and the range that suit it. */
+  _shownChanged() {
+    const f = this._form;
     if (this._unitInput) this._unitInput.placeholder = this._entityUnit() || this.t("custom_unit_placeholder");
-    if (f.color_mode !== "gradient" || f.gradient === "custom" || !this._hass.states[f.entity_id]) { this._updateGradientBar(); return; }
+    if (f.color_mode !== "gradient" || f.gradient === "custom" || !this._shown()) { this._updateGradientBar(); return; }
     const hadRange = f.gradient_min !== "" || f.gradient_max !== "";
     this._suggestRange();
     if (!hadRange && (f.gradient_min !== "" || f.gradient_max !== "")) {
@@ -1637,9 +1645,23 @@ class AwtrixStudioPanel extends HTMLElement {
     return [show, this._field("unit", this.t("custom_unit"), unit, this.t("custom_unit_help"))];
   }
 
-  /** The unit Home Assistant gives the entity being edited, if any. */
+  /**
+   * What the app shows, as a state: the entity's own, or, for an attribute, its value with the
+   * unit Home Assistant gives it (`<attribute>_unit`) and the attribute's name as its kind.
+   */
+  _shown() {
+    const f = this._form;
+    const stateObj = this._hass.states[f.entity_id];
+    if (!stateObj || !f.attribute) return stateObj;
+    const attributes = stateObj.attributes || {};
+    const value = attributes[f.attribute];
+    return { state: value === undefined || value === null ? "" : String(value),
+      attributes: { device_class: f.attribute, unit_of_measurement: attributes[`${f.attribute}_unit`] || "" } };
+  }
+
+  /** The unit Home Assistant gives what the app shows, if any. */
   _entityUnit() {
-    return this._hass.states[this._form.entity_id]?.attributes?.unit_of_measurement || "";
+    return this._shown()?.attributes?.unit_of_measurement || "";
   }
 
   _check(key, label, help) {
@@ -1684,6 +1706,38 @@ class AwtrixStudioPanel extends HTMLElement {
     }
     matches.sort((a, b) => a.rank - b.rank);
     return matches.slice(0, limit).map((m) => m.item);
+  }
+
+  /** What to read of the entity: a weather entity has no number as its state, but a temperature. */
+  _followAttribute() {
+    const f = this._form;
+    const attributes = this._hass.states[f.entity_id]?.attributes;
+    if (!attributes) return;
+    if (f.attribute && !(f.attribute in attributes)) f.attribute = "";
+    if (!f.attribute && f.entity_id.startsWith("weather.") && "temperature" in attributes) {
+      f.attribute = "temperature";
+    }
+    this._renderAttribute();
+  }
+
+  /** Read the state of the entity, or one of its attributes. */
+  _attributeField() {
+    this._attributeHost = h("div", { class: "entity-host" });
+    this._renderAttribute();
+    return this._field("attribute", this.t("attribute"), this._attributeHost, this.t("attribute_help"));
+  }
+
+  _renderAttribute() {
+    if (!this._attributeHost) return;
+    const f = this._form;
+    const attributes = this._hass.states[f.entity_id]?.attributes || {};
+    const names = Object.keys(attributes).filter((key) => ["string", "number"].includes(typeof attributes[key]));
+    if (f.attribute && !names.includes(f.attribute)) names.push(f.attribute);
+    const select = h("select", { id: "f-attribute", onChange: (e) => { f.attribute = e.target.value; this._shownChanged(); this._schedulePreview(); } },
+      h("option", { value: "" }, this.t("attribute_state")),
+      ...names.sort().map((name) => h("option", { value: name }, name)));
+    select.value = f.attribute;
+    this._attributeHost.replaceChildren(select);
   }
 
   /**
@@ -2087,6 +2141,7 @@ class AwtrixStudioPanel extends HTMLElement {
     }
     fieldset.append(h("div", { class: "fields" },
       this._field("entity_id", this.t("entity"), this._entityInput(), null, true),
+      this._attributeField(),
       f.layout === "title_value"
         ? this._field("label", this.t("title_label"), this._input("label", "text", { maxlength: 64 }), this.t("title_label_help"))
         : this._field("label", this.t("label"), this._input("label", "text", { maxlength: 64 }), this.t("label_help")),
@@ -2404,7 +2459,7 @@ class AwtrixStudioPanel extends HTMLElement {
   _suggestRange() {
     const f = this._form;
     if (f.gradient_min !== "" || f.gradient_max !== "") return;
-    const hint = suggestion(this._hass.states[f.entity_id]);
+    const hint = suggestion(this._shown());
     if (!hint) return;
     const [preset, low, high] = hint;
     if (f.color_mode === "gradient" && !f._presetTouched) f.gradient = preset;
@@ -2429,7 +2484,7 @@ class AwtrixStudioPanel extends HTMLElement {
     const low = stops[0][0];
     const high = stops[stops.length - 1][0];
     this._gradientLabels.append(h("span", {}, String(+low.toFixed(3))), h("span", {}, String(+high.toFixed(3))));
-    const state = this._hass.states[this._form.entity_id];
+    const state = this._shown();
     const value = state ? Number(state.state) : NaN;
     if (!state || state.state === "" || !Number.isFinite(value)) {
       this._gradientMarker.hidden = true;

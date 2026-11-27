@@ -24,6 +24,7 @@ from .const import (
     COLOR_STEPS,
     CONF_ACTIVE_STATE,
     CONF_APP_NAME,
+    CONF_ATTRIBUTE,
     CONF_COLOR,
     CONF_COLOR_1,
     CONF_COLOR_2,
@@ -107,6 +108,7 @@ from .templates import (
 )
 
 MAX_TEXT = 64
+ATTRIBUTE_RE = re.compile(r"^[A-Za-z0-9_]+$")
 MAX_TEMPLATE = 20_000
 
 
@@ -285,6 +287,11 @@ def _segment(data: Mapping[str, Any]) -> dict[str, Any]:
         CONF_SHOW_UNIT: _bool(data, CONF_SHOW_UNIT, True),
         CONF_HIDE_WHEN_ZERO: _bool(data, CONF_HIDE_WHEN_ZERO, False),
     }
+    # Only kept when typed: the entity's state otherwise.
+    if attribute := _text(data, CONF_ATTRIBUTE):
+        if not ATTRIBUTE_RE.fullmatch(attribute):
+            raise Invalid(CONF_ATTRIBUTE, "invalid_value")
+        clean[CONF_ATTRIBUTE] = attribute
     # Only kept when chosen: the label takes the value's color otherwise.
     if (label_color := _color(data, CONF_LABEL_COLOR, None)) is not None:
         clean[CONF_LABEL_COLOR] = label_color

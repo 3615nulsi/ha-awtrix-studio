@@ -95,6 +95,10 @@ Choose an entity, add a label, an icon and colors, and you're done. The preview 
 
 The app also leaves the rotation by itself while its entity is unavailable.
 
+### Showing an attribute instead of the state
+
+Under **Entity**, **Value to show** lists the attributes of the entity. Pick one to show it instead of the state: the `temperature` of a weather entity, the `battery` of a device, and so on. Picking a weather entity selects its temperature for you. The unit is the attribute's own when Home Assistant gives one (`temperature_unit`, `pressure_unit`…), and none otherwise; the progress bar follows the same value.
+
 ### Template mode: full control
 
 For anything more creative (drawings, progress bars, several pages), write a Home Assistant template that produces the clock's JSON. The preview shows each page, alternates them like the clock does, and tells you right away if something is wrong. Here, the next two trams, one per line of a TC002.

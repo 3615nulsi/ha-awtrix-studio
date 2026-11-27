@@ -51,6 +51,9 @@ CONF_LABEL: Final = "label"
 # The label's own color; without it, the label takes the value's color.
 CONF_LABEL_COLOR: Final = "label_color"
 CONF_ICON: Final = "icon"
+# Read this attribute of the entity instead of its state (a weather entity's
+# temperature, say).
+CONF_ATTRIBUTE: Final = "attribute"
 CONF_COLOR: Final = "color"
 CONF_DECIMALS: Final = "decimals"
 CONF_SHOW_UNIT: Final = "show_unit"

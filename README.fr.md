@@ -95,6 +95,10 @@ Choisissez une entité, ajoutez un libellé, une icône et des couleurs, et c'es
 
 L'app quitte aussi la rotation d'elle-même tant que son entité est indisponible.
 
+### Afficher un attribut plutôt que l'état
+
+Sous **Entité**, **Valeur à afficher** liste les attributs de l'entité. Choisis-en un pour l'afficher à la place de l'état : la `temperature` d'une entité météo, la `battery` d'un appareil, etc. Choisir une entité météo sélectionne sa température pour toi. L'unité est celle de l'attribut quand Home Assistant en donne une (`temperature_unit`, `pressure_unit`…), sinon aucune ; la barre de progression suit la même valeur.
+
 ### Le mode modèle : liberté totale
 
 Pour aller plus loin (dessins, barres de progression, plusieurs pages), écrivez un modèle Home Assistant qui produit le JSON de l'horloge. L'aperçu montre chaque page, les fait alterner comme l'horloge, et signale tout de suite ce qui cloche. Ici, les deux prochains trams, un par ligne d'un TC002.

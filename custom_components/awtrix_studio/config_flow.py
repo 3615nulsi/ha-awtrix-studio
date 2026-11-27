@@ -45,6 +45,7 @@ from .const import (
     COLOR_STEPS,
     CONF_ACTIVE_STATE,
     CONF_APP_NAME,
+    CONF_ATTRIBUTE,
     CONF_COLOR,
     CONF_COLOR_1,
     CONF_COLOR_2,
@@ -583,6 +584,13 @@ class _LiveSubentryFlow(ConfigSubentryFlow):
         # default icon.
         if data.get(CONF_MODE) == MODE_SIMPLE and CONF_LABEL_COLOR in self._current:
             data = {**data, CONF_LABEL_COLOR: self._current[CONF_LABEL_COLOR]}
+        # And the attribute it reads, as long as it is still the same entity.
+        if (
+            data.get(CONF_MODE) == MODE_SIMPLE
+            and CONF_ATTRIBUTE in self._current
+            and self._current.get(CONF_ENTITY_ID) == data.get(CONF_ENTITY_ID)
+        ):
+            data = {**data, CONF_ATTRIBUTE: self._current[CONF_ATTRIBUTE]}
         if (
             data.get(CONF_MODE) == MODE_TEMPLATE
             and self._current.get(CONF_MODE) == MODE_TEMPLATE
