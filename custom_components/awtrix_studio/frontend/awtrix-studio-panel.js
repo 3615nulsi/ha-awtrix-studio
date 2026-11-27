@@ -1616,8 +1616,14 @@ class AwtrixStudioPanel extends HTMLElement {
   _entityChanged() {
     const f = this._form;
     this._followAttribute();
+    this._shownChanged();
+  }
+
+  /** What the app shows changed (its entity or attribute): the unit and the range that suit it. */
+  _shownChanged() {
+    const f = this._form;
     if (this._unitInput) this._unitInput.placeholder = this._entityUnit() || this.t("custom_unit_placeholder");
-    if (f.color_mode !== "gradient" || f.gradient === "custom" || !this._hass.states[f.entity_id]) { this._updateGradientBar(); return; }
+    if (f.color_mode !== "gradient" || f.gradient === "custom" || !this._shown()) { this._updateGradientBar(); return; }
     const hadRange = f.gradient_min !== "" || f.gradient_max !== "";
     this._suggestRange();
     if (!hadRange && (f.gradient_min !== "" || f.gradient_max !== "")) {
@@ -1639,9 +1645,23 @@ class AwtrixStudioPanel extends HTMLElement {
     return [show, this._field("unit", this.t("custom_unit"), unit, this.t("custom_unit_help"))];
   }
 
-  /** The unit Home Assistant gives the entity being edited, if any. */
+  /**
+   * What the app shows, as a state: the entity's own, or, for an attribute, its value with the
+   * unit Home Assistant gives it (`<attribute>_unit`) and the attribute's name as its kind.
+   */
+  _shown() {
+    const f = this._form;
+    const stateObj = this._hass.states[f.entity_id];
+    if (!stateObj || !f.attribute) return stateObj;
+    const attributes = stateObj.attributes || {};
+    const value = attributes[f.attribute];
+    return { state: value === undefined || value === null ? "" : String(value),
+      attributes: { device_class: f.attribute, unit_of_measurement: attributes[`${f.attribute}_unit`] || "" } };
+  }
+
+  /** The unit Home Assistant gives what the app shows, if any. */
   _entityUnit() {
-    return this._hass.states[this._form.entity_id]?.attributes?.unit_of_measurement || "";
+    return this._shown()?.attributes?.unit_of_measurement || "";
   }
 
   _check(key, label, help) {
@@ -1688,11 +1708,6 @@ class AwtrixStudioPanel extends HTMLElement {
     return matches.slice(0, limit).map((m) => m.item);
   }
 
-  /**
-   * The entity field. Home Assistant's own picker is used when the page can
-   * load it (it is loaded on demand, and may be missing in a custom panel);
-   * otherwise our own search field stays, so the field is never empty.
-   */
   /** What to read of the entity: a weather entity has no number as its state, but a temperature. */
   _followAttribute() {
     const f = this._form;
@@ -1701,8 +1716,6 @@ class AwtrixStudioPanel extends HTMLElement {
     if (f.attribute && !(f.attribute in attributes)) f.attribute = "";
     if (!f.attribute && f.entity_id.startsWith("weather.") && "temperature" in attributes) {
       f.attribute = "temperature";
-      if (!f.unit && attributes.temperature_unit) f.unit = attributes.temperature_unit;
-      if (this._unitInput) this._unitInput.value = f.unit;
     }
     this._renderAttribute();
   }
@@ -1720,13 +1733,18 @@ class AwtrixStudioPanel extends HTMLElement {
     const attributes = this._hass.states[f.entity_id]?.attributes || {};
     const names = Object.keys(attributes).filter((key) => ["string", "number"].includes(typeof attributes[key]));
     if (f.attribute && !names.includes(f.attribute)) names.push(f.attribute);
-    const select = h("select", { id: "f-attribute", onChange: (e) => { f.attribute = e.target.value; this._schedulePreview(); } },
+    const select = h("select", { id: "f-attribute", onChange: (e) => { f.attribute = e.target.value; this._shownChanged(); this._schedulePreview(); } },
       h("option", { value: "" }, this.t("attribute_state")),
       ...names.sort().map((name) => h("option", { value: name }, name)));
     select.value = f.attribute;
     this._attributeHost.replaceChildren(select);
   }
 
+  /**
+   * The entity field. Home Assistant's own picker is used when the page can
+   * load it (it is loaded on demand, and may be missing in a custom panel);
+   * otherwise our own search field stays, so the field is never empty.
+   */
   _entityPicker(key, placeholder, onChange) {
     const host = h("div", { class: "entity-host" }, this._searchPicker(key, placeholder, onChange));
     const swap = () => {
@@ -2441,7 +2459,7 @@ class AwtrixStudioPanel extends HTMLElement {
   _suggestRange() {
     const f = this._form;
     if (f.gradient_min !== "" || f.gradient_max !== "") return;
-    const hint = suggestion(this._hass.states[f.entity_id]);
+    const hint = suggestion(this._shown());
     if (!hint) return;
     const [preset, low, high] = hint;
     if (f.color_mode === "gradient" && !f._presetTouched) f.gradient = preset;
@@ -2466,7 +2484,7 @@ class AwtrixStudioPanel extends HTMLElement {
     const low = stops[0][0];
     const high = stops[stops.length - 1][0];
     this._gradientLabels.append(h("span", {}, String(+low.toFixed(3))), h("span", {}, String(+high.toFixed(3))));
-    const state = this._hass.states[this._form.entity_id];
+    const state = this._shown();
     const value = state ? Number(state.state) : NaN;
     if (!state || state.state === "" || !Number.isFinite(value)) {
       this._gradientMarker.hidden = true;

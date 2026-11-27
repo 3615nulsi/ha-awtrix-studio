@@ -116,3 +116,48 @@ async def test_validation_refuses_a_bad_attribute(
             None,
         )
     assert err.value.field == "attribute"
+
+
+async def test_the_unit_of_an_attribute_is_its_own(hass: HomeAssistant) -> None:
+    """`<attribute>_unit` when Home Assistant gives one; never the entity's unit."""
+    template = build_app_template(options(unit="", decimals=0), "awtrix3")
+    hass.states.async_set(
+        WEATHER,
+        "rainy",
+        {"temperature": 5.6, "temperature_unit": "°C", "unit_of_measurement": "%"},
+    )
+    assert render(hass, template)[0]["text"] == "6°C"
+    hass.states.async_set(
+        WEATHER, "rainy", {"temperature": 5.6, "unit_of_measurement": "%"}
+    )
+    assert render(hass, template)[0]["text"] == "6"
+    # Without an attribute the entity's unit is used, as before.
+    state = build_app_template(options(unit="", decimals=0, attribute=""), "awtrix3")
+    hass.states.async_set("weather.home", "5.6", {"unit_of_measurement": "%"})
+    assert render(hass, state)[0]["text"] == "6%"
+
+
+@pytest.mark.parametrize("firmware", ["awtrix3", "awtrix_ng"])
+async def test_the_progress_bar_follows_the_attribute(
+    hass: HomeAssistant, firmware: str
+) -> None:
+    """Without a progress entity, the bar reads the value the text shows."""
+    template = build_app_template(
+        options(progress=True, progress_min=0, progress_max=40), firmware
+    )
+    hass.states.async_set(WEATHER, "rainy", {"temperature": 10})
+    [page] = render(hass, template)
+    assert page["progress"] == 25
+
+
+async def test_the_progress_bar_of_a_layout_follows_the_attribute(
+    hass: HomeAssistant,
+) -> None:
+    """The layout with a bar reads the attribute too."""
+    template = build_app_template(
+        options(layout="value_bar", progress_min=0, progress_max=40), "awtrix_ng"
+    )
+    hass.states.async_set(WEATHER, "rainy", {"temperature": 30})
+    [page] = render(hass, template)
+    [bar] = [r for r in page["layout"]["regions"] if r["id"] == "bar"]
+    assert bar["progress"] == 75

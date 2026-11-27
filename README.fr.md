@@ -97,7 +97,7 @@ L'app quitte aussi la rotation d'elle-même tant que son entité est indisponibl
 
 ### Afficher un attribut plutôt que l'état
 
-Sous **Entité**, **Valeur à afficher** liste les attributs de l'entité. Choisis-en un pour l'afficher à la place de l'état : la `temperature` d'une entité météo, la `battery` d'un appareil, etc. Choisir une entité météo sélectionne sa température pour toi.
+Sous **Entité**, **Valeur à afficher** liste les attributs de l'entité. Choisis-en un pour l'afficher à la place de l'état : la `temperature` d'une entité météo, la `battery` d'un appareil, etc. Choisir une entité météo sélectionne sa température pour toi. L'unité est celle de l'attribut quand Home Assistant en donne une (`temperature_unit`, `pressure_unit`…), sinon aucune ; la barre de progression suit la même valeur.
 
 ### Le mode modèle : liberté totale
 

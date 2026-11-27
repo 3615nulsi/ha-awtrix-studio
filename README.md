@@ -97,7 +97,7 @@ The app also leaves the rotation by itself while its entity is unavailable.
 
 ### Showing an attribute instead of the state
 
-Under **Entity**, **Value to show** lists the attributes of the entity. Pick one to show it instead of the state: the `temperature` of a weather entity, the `battery` of a device, and so on. Picking a weather entity selects its temperature for you.
+Under **Entity**, **Value to show** lists the attributes of the entity. Pick one to show it instead of the state: the `temperature` of a weather entity, the `battery` of a device, and so on. Picking a weather entity selects its temperature for you. The unit is the attribute's own when Home Assistant gives one (`temperature_unit`, `pressure_unit`…), and none otherwise; the progress bar follows the same value.
 
 ### Template mode: full control
 
