@@ -24,6 +24,13 @@ const MAX_SEGMENTS = 5;
 const SEGMENT_KEYS = ["entity_id", "label", "label_color", "color", "decimals", "show_unit", "unit", "hide_when_zero", "threshold_1", "color_1",
   "threshold_2", "color_2", "color_mode", "gradient", "_presetTouched", "gradient_min", "gradient_max", "gradient_stops", "font", "align", "attribute"];
 
+// The states of a weather entity, each of which can have its own icon.
+const WEATHER_CONDITIONS = ["sunny", "clear-night", "partlycloudy", "cloudy", "fog", "rainy", "pouring", "lightning", "lightning-rainy",
+  "snowy", "snowy-rainy", "hail", "windy", "windy-variant", "exceptional"];
+// How the icon of a simple app is chosen.
+const ICON_MODES = ["fixed", "state", "value"];
+const MAX_ICON_STEPS = 20;
+
 // AWTRIX 3 background effects, palettes and weather overlays.
 const EFFECTS = ["BrickBreaker", "Checkerboard", "ColorWaves", "Fade", "Fireworks", "LookingEyes", "Matrix", "MovingLine", "Pacifica",
   "PingPong", "Plasma", "PlasmaCloud", "Radar", "Ripple", "Snake", "SwirlIn", "SwirlOut", "TheaterChase", "TwinklingStars"];
@@ -310,6 +317,13 @@ details summary { cursor: pointer; font-size: 13px; }
 details pre { margin-top: 8px; }
 .icon-row { flex-wrap: nowrap; }
 .icon-row input { flex: 1; min-width: 0; }
+.icon-rules { display: grid; gap: 10px; margin-top: 8px; }
+.icon-rules .rows { display: grid; gap: 6px; }
+.icon-rule { flex-wrap: nowrap; align-items: center; }
+.icon-rule > input { flex: 1; min-width: 0; }
+.icon-rule .rule-state { flex: none; width: 12em; overflow-wrap: anywhere; }
+.icon-rule .rule-min { flex: none; width: 7em; }
+.icon-rules .sub { font-size: 13px; font-weight: 500; }
 .icon-preview { width: 38px; height: 38px; flex: none; border-radius: 6px; image-rendering: pixelated; background: #0b0b0d; }
 .picker-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 10; display: flex; align-items: center; justify-content: center; padding: 16px; }
 .picker { background: var(--card-background-color, #fff); color: var(--primary-text-color, #1f2328); border-radius: 14px; width: min(760px, 100%);
@@ -1161,6 +1175,10 @@ class AwtrixStudioPanel extends HTMLElement {
         segment: 0,
         separator: typeof d.separator === "string" ? d.separator : " ",
         icon: d.icon || "",
+        icon_mode: d.icon_mode || (d.icon_states && Object.keys(d.icon_states).length ? "state" : "fixed"),
+        icon_entity_id: d.icon_entity_id || "",
+        icon_states: { ...(d.icon_states || {}) },
+        icon_steps: (d.icon_steps || []).map((step) => ({ min: String(step.min), icon: step.icon || "" })),
         layout: d.layout || (kind === "notification" && this._layoutsAvailable() ? "line" : ""),
         value_font: d.value_font || VALUE_FONTS[0],
         text_font: d.text_font || TEXT_FONTS[0],
@@ -1361,7 +1379,7 @@ class AwtrixStudioPanel extends HTMLElement {
     if (kind === "app" && f.mode === "simple") {
       this._syncSegment();
       const [first, ...next] = f.segments.map((s) => this._segmentPayload(s));
-      return { mode: "simple", app_name: f.app_name, ...first, segments: next, separator: f.separator, icon: f.icon,
+      return { mode: "simple", app_name: f.app_name, ...first, segments: next, separator: f.separator, icon: f.icon, ...this._iconRulesPayload(),
         layout: f.layout, value_font: f.value_font, text_font: f.text_font, ...this._progressPayload(), display: this._displayPayload() };
     }
     if (kind === "app") {
@@ -1616,6 +1634,8 @@ class AwtrixStudioPanel extends HTMLElement {
   _entityChanged() {
     const f = this._form;
     this._followAttribute();
+    // An icon that follows the app's own entity takes its states from it.
+    if (f.icon_mode === "state" && !f.icon_entity_id && this._fieldsBox?.querySelector("#f-icon_mode")) this._refreshIconRules();
     this._shownChanged();
   }
 
@@ -1837,8 +1857,8 @@ class AwtrixStudioPanel extends HTMLElement {
 
   // ------------------------------------------------------------- icons
 
-  _iconField() {
-    const f = this._form;
+  /** The icon of the app, its name typed or picked from the gallery, with a preview. */
+  _iconControl() {
     this._iconPreview = h("canvas", { class: "icon-preview", width: 8, height: 8, "aria-hidden": "true" });
     const input = this._input("icon", "text", { maxlength: 64, spellcheck: "false", placeholder: "lametric:2422" });
     input.addEventListener("input", () => this._drawIconPreview());
@@ -1846,24 +1866,36 @@ class AwtrixStudioPanel extends HTMLElement {
     const control = h("div", { class: "row icon-row" }, this._iconPreview, input,
       h("button", { class: "btn small", type: "button", onClick: () => this._openIconPicker() }, icon("search"), this.t("icon_pick")));
     this._drawIconPreview();
+    return control;
+  }
+
+  _iconField() {
+    const f = this._form;
+    // A simple app's icon can follow an entity.
+    if (this._view.kind === "app" && f.mode === "simple") return this._iconModeField();
+    const control = this._iconControl();
     // A template app's icon is a default for its pages.
     if (f.mode === "template") return this._field("icon", this.t("default_icon"), control, this.t("icon_help_template"), true);
     const help = f.layout ? `${this.t("icon_help_studio")} ${this.t("layout_icon_note")}` : this.t("icon_help_studio");
     return this._field("icon", this.t("icon"), control, help, true);
   }
 
-  async _drawIconPreview() {
-    const canvas = this._iconPreview;
+  _drawIconPreview() {
+    const value = this._form.icon || "";
+    return this._paintIcon(this._iconPreview, value, () => (this._form.icon || "") === value);
+  }
+
+  /** Draw an icon on a small canvas; `current` says whether it is still the one to show. */
+  async _paintIcon(canvas, value, current = () => true) {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "#0b0b0d";
     ctx.fillRect(0, 0, 8, 8);
     // A bare number is a LaMetric icon too, unless the clock has that file.
-    const value = this._form.icon || "";
     const match = /^(?:lametric:)?(\d{1,7})$/.exec(value);
-    canvas.title = match ? "" : this.t("icon_on_clock");
+    canvas.title = match || !value ? "" : this.t("icon_on_clock");
     if (!match) {
-      (clockIcon(value, () => this._drawIconPreview()) || []).forEach((color, i) => {
+      (clockIcon(value, () => this._paintIcon(canvas, value, current)) || []).forEach((color, i) => {
         if (!color) return;
         ctx.fillStyle = color;
         ctx.fillRect(i % 8, Math.floor(i / 8), 1, 1);
@@ -1871,12 +1903,161 @@ class AwtrixStudioPanel extends HTMLElement {
       return;
     }
     const pixels = await this._iconPixels(Number(match[1]));
-    if (!pixels || this._form.icon !== value) return;
+    if (!pixels || !current()) return;
     pixels.forEach((value, i) => {
       if (!Number.isInteger(value) || value <= 0) return;
       ctx.fillStyle = parseColor(value);
       ctx.fillRect(i % 8, Math.floor(i / 8), 1, 1);
     });
+  }
+
+  // ------------------------------------------------- icons that follow an entity
+
+  /** What the icon rules say, for the payload: nothing is kept for a fixed icon. */
+  _iconRulesPayload() {
+    const f = this._form;
+    if (f.icon_mode === "state") {
+      const icons = {};
+      Object.entries(f.icon_states).forEach(([state, name]) => { if (String(name).trim()) icons[state] = String(name).trim(); });
+      return { icon_mode: "state", icon_entity_id: f.icon_entity_id, icon_states: icons };
+    }
+    if (f.icon_mode === "value") {
+      const steps = f.icon_steps.filter((step) => String(step.icon).trim())
+        .map((step) => ({ min: step.min === "" ? "" : Number(step.min), icon: String(step.icon).trim() }));
+      return { icon_mode: "value", icon_entity_id: f.icon_entity_id, icon_steps: steps };
+    }
+    return { icon_mode: "fixed" };
+  }
+
+  /** The entity of the app's first line: what its icon follows unless another is chosen. */
+  _ownEntity() {
+    const f = this._form;
+    return (f.segment === 0 ? f.entity_id : f.segments[0]?.entity_id) || "";
+  }
+
+  /** The states an entity can have, for a table of icons to start from. */
+  _suggestedStates(entityId) {
+    const stateObj = this._hass.states[entityId];
+    const domain = entityId.split(".")[0];
+    if (domain === "weather") return WEATHER_CONDITIONS;
+    const options = stateObj?.attributes?.options;
+    if (Array.isArray(options) && options.length) return options.map(String);
+    if (["binary_sensor", "switch", "light", "input_boolean", "fan", "siren", "automation", "remote"].includes(domain)) return ["on", "off"];
+    if (["person", "device_tracker"].includes(domain)) return ["home", "not_home"];
+    return [];
+  }
+
+  /** A state as Home Assistant says it ("Open", "Rainy"), as far as it can. */
+  _stateLabel(entityId, state) {
+    const stateObj = this._hass.states[entityId];
+    if (stateObj && typeof this._hass.formatEntityState === "function") {
+      try {
+        const label = this._hass.formatEntityState(stateObj, state);
+        if (label) return String(label);
+      } catch (_err) { /* the state is shown as it is */ }
+    }
+    return state;
+  }
+
+  /** The icon field of a simple app: one icon, or one that follows the state or the value of an entity. */
+  _iconModeField() {
+    const f = this._form;
+    const select = h("select", { id: "f-icon_mode",
+      onChange: (e) => { f.icon_mode = e.target.value; renderBody(); this._schedulePreview(); } },
+      ...ICON_MODES.map((mode) => h("option", { value: mode }, this.t(`icon_mode_${mode}`))));
+    select.value = f.icon_mode;
+    const body = h("div", { class: "icon-rules" });
+    const renderBody = () => {
+      body.replaceChildren(...this._iconModeBody());
+      help.textContent = this.t(`icon_mode_${f.icon_mode}_help`);
+    };
+    const help = h("div", { class: "muted" });
+    const field = this._field("icon_mode", this.t("icon"), h("div", {}, select, help, body), null, true);
+    // Every problem with the icon shows under the field.
+    ["icon", "icon_entity_id", "icon_states", "icon_steps"].forEach((key) => { this._errors[key] = this._errors.icon_mode; });
+    renderBody();
+    return field;
+  }
+
+  _iconModeBody() {
+    const f = this._form;
+    if (f.icon_mode === "fixed") {
+      const control = this._iconControl();
+      const note = f.layout ? `${this.t("icon_help_studio")} ${this.t("layout_icon_note")}` : this.t("icon_help_studio");
+      return [control, h("div", { class: "muted" }, note)];
+    }
+    const rules = h("div", { class: "rows" });
+    const entityLabel = f.icon_mode === "state" ? this.t("icon_follow_entity") : this.t("icon_value_entity");
+    const entityHelp = f.icon_mode === "state" ? this.t("icon_follow_entity_help") : this.t("icon_value_entity_help");
+    const entity = h("div", { class: "field" },
+      h("div", { class: "sub" }, entityLabel),
+      this._entityPicker("icon_entity_id", this.t("icon_entity_placeholder"), () => { renderRules(); this._schedulePreview(); }),
+      h("div", { class: "muted" }, entityHelp));
+    const renderRules = () => { rules.replaceChildren(...(f.icon_mode === "state" ? this._stateRules() : this._stepRules(renderRules))); };
+    renderRules();
+    const fallback = f.icon_mode === "state" ? this.t("icon_default_state") : this.t("icon_default_value");
+    return [entity, rules, h("div", { class: "sub" }, fallback), this._iconControl()];
+  }
+
+  /** One row of rules: a preview, the icon's name, the gallery, and a button to empty it. */
+  _iconRuleRow(lead, get, set, extra = null) {
+    const canvas = h("canvas", { class: "icon-preview", width: 8, height: 8, "aria-hidden": "true" });
+    let token = 0;
+    const paint = () => {
+      const mine = ++token;
+      this._paintIcon(canvas, get() || "", () => mine === token);
+    };
+    const input = h("input", { type: "text", maxlength: 64, spellcheck: "false", placeholder: "lametric:2422", value: get() || "",
+      onInput: (e) => { set(e.target.value); paint(); this._schedulePreview(); } });
+    const pick = (value) => { set(value); input.value = value; paint(); this._schedulePreview(); };
+    paint();
+    return h("div", { class: "row icon-rule" }, lead, canvas, input,
+      h("button", { class: "btn small", type: "button", onClick: () => this._openIconPicker(pick) }, icon("search"), this.t("icon_pick")),
+      extra || h("button", { class: "icon-btn", type: "button", "aria-label": this.t("icon_rule_clear"), title: this.t("icon_rule_clear"),
+        onClick: () => pick("") }, icon("close")));
+  }
+
+  /** An icon for each state: those the entity can have, and any other typed in. */
+  _stateRules() {
+    const f = this._form;
+    const entityId = f.icon_entity_id || this._ownEntity();
+    const states = [...new Set([...this._suggestedStates(entityId), ...Object.keys(f.icon_states)])];
+    const rows = states.map((state) => this._iconRuleRow(
+      h("span", { class: "rule-state", title: state }, this._stateLabel(entityId, state)),
+      () => f.icon_states[state], (value) => { f.icon_states[state] = value; }));
+    const custom = h("input", { type: "text", maxlength: 64, spellcheck: "false", placeholder: this.t("icon_state_placeholder"),
+      "aria-label": this.t("icon_state_add") });
+    const add = () => {
+      const state = custom.value.trim();
+      if (!state) return;
+      if (!(state in f.icon_states)) f.icon_states[state] = "";
+      this._refreshIconRules();
+    };
+    custom.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); add(); } });
+    return [...rows, h("div", { class: "row" }, custom,
+      h("button", { class: "btn small", type: "button", onClick: add }, icon("plus"), this.t("icon_state_add")))];
+  }
+
+  /** Steps: from a value and above, an icon. */
+  _stepRules(rerender) {
+    const f = this._form;
+    const rows = f.icon_steps.map((step, index) => {
+      const min = h("input", { type: "number", class: "rule-min", style: "width: 6em; flex: none", step: "any", value: step.min, "aria-label": this.t("icon_step_from"),
+        onInput: (e) => { step.min = e.target.value; this._schedulePreview(); } });
+      const lead = h("span", { class: "row", style: "flex: none; flex-wrap: nowrap; align-items: center; gap: 6px" }, h("span", { class: "muted" }, this.t("icon_step_from")), min);
+      const remove = h("button", { class: "icon-btn", type: "button", "aria-label": this.t("icon_step_remove"), title: this.t("icon_step_remove"),
+        onClick: () => { f.icon_steps.splice(index, 1); rerender(); this._schedulePreview(); } }, icon("close"));
+      return this._iconRuleRow(lead, () => step.icon, (value) => { step.icon = value; }, remove);
+    });
+    const add = h("button", { class: "btn small", type: "button", disabled: f.icon_steps.length >= MAX_ICON_STEPS,
+      onClick: () => { f.icon_steps.push({ min: f.icon_steps.length ? "" : "0", icon: "" }); rerender(); } }, icon("plus"), this.t("icon_step_add"));
+    return [...rows, h("div", { class: "row" }, add)];
+  }
+
+  /** Draw the rules again, after the table or the steps changed. */
+  _refreshIconRules() {
+    const select = this._fieldsBox?.querySelector("#f-icon_mode");
+    if (select) select.dispatchEvent(new Event("change"));
   }
 
   // Icons stored on the clock are read through Home Assistant, per clock.
@@ -1896,8 +2077,10 @@ class AwtrixStudioPanel extends HTMLElement {
     return this._iconCache.get(id);
   }
 
-  _openIconPicker() {
+  /** `onPick(value)` takes the icon instead of the app's own icon field. */
+  _openIconPicker(onPick = null) {
     this._closeIconPicker();
+    this._onIconPick = onPick;
     const search = h("input", { type: "search", class: "picker-search", placeholder: this.t("icon_search_placeholder"),
       "aria-label": this.t("icon_search_placeholder"), maxlength: 64 });
     const grid = h("div", { class: "picker-grid", role: "listbox", "aria-label": this.t("icon_pick") });
@@ -1955,6 +2138,12 @@ class AwtrixStudioPanel extends HTMLElement {
   }
 
   _pickIcon(id) {
+    if (this._onIconPick) {
+      const onPick = this._onIconPick;
+      this._closeIconPicker();
+      onPick(`lametric:${id}`);
+      return;
+    }
     this._form.icon = `lametric:${id}`;
     if (this._iconInput) this._iconInput.value = this._form.icon;
     this._closeIconPicker();

@@ -67,6 +67,10 @@ from .const import (
     CONF_HIDE_WHEN_ZERO,
     CONF_HOLD,
     CONF_ICON,
+    CONF_ICON_ENTITY,
+    CONF_ICON_MODE,
+    CONF_ICON_STATES,
+    CONF_ICON_STEPS,
     CONF_INDICATOR,
     CONF_LABEL,
     CONF_LABEL_COLOR,
@@ -591,6 +595,21 @@ class _LiveSubentryFlow(ConfigSubentryFlow):
             and self._current.get(CONF_ENTITY_ID) == data.get(CONF_ENTITY_ID)
         ):
             data = {**data, CONF_ATTRIBUTE: self._current[CONF_ATTRIBUTE]}
+        # And how the icon follows an entity.
+        if data.get(CONF_MODE) == MODE_SIMPLE:
+            data = {
+                **data,
+                **{
+                    key: self._current[key]
+                    for key in (
+                        CONF_ICON_MODE,
+                        CONF_ICON_ENTITY,
+                        CONF_ICON_STATES,
+                        CONF_ICON_STEPS,
+                    )
+                    if key in self._current
+                },
+            }
         if (
             data.get(CONF_MODE) == MODE_TEMPLATE
             and self._current.get(CONF_MODE) == MODE_TEMPLATE

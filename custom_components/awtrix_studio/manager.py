@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from datetime import datetime, timedelta
 import logging
 from typing import Any
@@ -21,6 +21,7 @@ from .const import (
     CONF_CYCLE_ONLY_ON_SCREEN,
     CONF_HIDE_WHEN_EMPTY,
     CONF_INDICATOR,
+    CONF_LAYOUT,
     CONF_LIFETIME,
     CONF_MODE,
     CONF_NOTIFICATION_NAME,
@@ -30,6 +31,8 @@ from .const import (
     DEFAULT_HIDE_WHEN_EMPTY,
     DEFAULT_LIFETIME,
     DEFAULT_PAGE_INTERVAL,
+    FIRMWARE_AWTRIX_NG,
+    LAYOUTS,
     MODE_SIMPLE,
     SUBENTRY_TYPE_APP,
     SUBENTRY_TYPE_INDICATOR,
@@ -45,6 +48,8 @@ from .templates import (
     InvalidSimpleOptionsError,
     build_app_template,
     build_indicator_template,
+    icon_mode,
+    icon_names,
 )
 
 MANAGED_SUBENTRY_TYPES = (SUBENTRY_TYPE_APP, SUBENTRY_TYPE_INDICATOR)
@@ -115,6 +120,10 @@ def app_config_from_subentry(subentry: ConfigSubentry, firmware: str) -> AppConf
         lifetime=int(data.get(CONF_LIFETIME, DEFAULT_LIFETIME)),
         display=dict(data.get(CONF_DISPLAY) or {}),
         icon=default_icon(data),
+        icons=tuple(icon_names(data)) if simple and icon_mode(data) else (),
+        icons_inline=(
+            firmware == FIRMWARE_AWTRIX_NG and data.get(CONF_LAYOUT) in LAYOUTS
+        ),
     )
 
 
@@ -283,6 +292,10 @@ class ClockManager:
 
         return publish
 
+    async def _async_prepare_icons(self, names: Sequence[str], inline: bool) -> None:
+        """Get the icons of an app ready: downloaded, and stored on the clock."""
+        await self.icons.async_prepare(names, None if inline else self.files)
+
     async def async_publish_raw(self, topic: str, payload: str) -> str | None:
         """Publish a message that is not an app (a notification, a dismissal).
 
@@ -373,6 +386,7 @@ class ClockManager:
             app_config_from_subentry(subentry, self.driver.firmware),
             self._publish,
             topic=subentry_topic(self.driver, subentry),
+            prepare=self._async_prepare_icons,
         )
         app.async_set_on_screen(app.name == self._current_app)
         app.async_add_listener(self._notify)

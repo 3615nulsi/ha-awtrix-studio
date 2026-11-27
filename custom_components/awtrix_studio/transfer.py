@@ -39,6 +39,7 @@ from .const import (
     APP_NAME_PATTERN,
     CONF_APP_NAME,
     CONF_ENTITY_ID,
+    CONF_ICON_ENTITY,
     CONF_INDICATOR,
     CONF_LAYOUT,
     CONF_MODE,
@@ -181,6 +182,8 @@ def _entities(
         used.add(data[CONF_TRIGGER_ENTITY])
     if data.get(CONF_MODE) == MODE_SIMPLE:
         used |= {segment[CONF_ENTITY_ID] for segment in app_segments(data)}
+        if data.get(CONF_ICON_ENTITY):
+            used.add(data[CONF_ICON_ENTITY])
     else:
         try:
             info = Template(data[CONF_TEMPLATE], hass).async_render_to_info()

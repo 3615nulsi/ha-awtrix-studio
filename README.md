@@ -99,6 +99,16 @@ The app also leaves the rotation by itself while its entity is unavailable.
 
 Under **Entity**, **Value to show** lists the attributes of the entity. Pick one to show it instead of the state: the `temperature` of a weather entity, the `battery` of a device, and so on. Picking a weather entity selects its temperature for you. The unit is the attribute's own when Home Assistant gives one (`temperature_unit`, `pressure_unit`…), and none otherwise; the progress bar follows the same value.
 
+### An icon that changes
+
+In a simple app, the **Icon** field has three modes:
+
+- **Fixed**: always the same icon.
+- **By state**: one icon per state of an entity, from the LaMetric gallery (animated ones included). The table starts with the states the entity can have: the conditions of a weather entity, on and off for a door or a light, the options of a select. Type any other state to add it. A rain icon when the weather says `rainy`, an open door when the sensor says `on`.
+- **By value**: steps, "from this value and above, this icon". For a battery: 0, 20, 50, 80 and 95 %. The value is the app's own (the attribute it shows, if you picked one), or the state of another entity.
+
+The fixed icon is the one for any other state, below the first step, and when the value is not a number. The icons of the table and of the steps are downloaded, and animated ones stored on the clock, as soon as the app starts, so the first change shows the right icon right away.
+
 ### Template mode: full control
 
 For anything more creative (drawings, progress bars, several pages), write a Home Assistant template that produces the clock's JSON. The preview shows each page, alternates them like the clock does, and tells you right away if something is wrong. Here, the next two trams, one per line of a TC002.

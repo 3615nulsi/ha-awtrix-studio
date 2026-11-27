@@ -36,6 +36,11 @@ from .const import (
     CONF_FONT,
     CONF_HIDE_WHEN_ZERO,
     CONF_ICON,
+    CONF_ICON_ENTITY,
+    CONF_ICON_MIN,
+    CONF_ICON_MODE,
+    CONF_ICON_STATES,
+    CONF_ICON_STEPS,
     CONF_LABEL,
     CONF_LABEL_COLOR,
     CONF_LAYOUT,
@@ -65,6 +70,8 @@ from .const import (
     EFFECTS,
     FIRMWARE_AWTRIX3,
     FIRMWARE_AWTRIX_NG,
+    ICON_BY_STATE,
+    ICON_BY_VALUE,
     INDICATOR_COLOR_MODES,
     LAYOUT_LINE,
     LAYOUT_TITLE_VALUE,
@@ -253,7 +260,18 @@ def app_segments(options: Mapping[str, Any]) -> list[Mapping[str, Any]]:
 def build_app_template(
     options: Mapping[str, Any], firmware: str = FIRMWARE_AWTRIX3
 ) -> str:
-    """Template for a simple app: entities shown as text, with an icon."""
+    """Template for a simple app: entities shown as text, with an icon.
+
+    An icon that follows an entity is chosen first, on the lines after the
+    header.
+    """
+    template = _build_app_template(options, firmware)
+    if icon_lines := _icon_lines(options):
+        template = template.replace(HEADER, "\n".join([HEADER, *icon_lines]), 1)
+    return template
+
+
+def _build_app_template(options: Mapping[str, Any], firmware: str) -> str:
     if firmware == FIRMWARE_AWTRIX_NG and options.get(CONF_LAYOUT) in LAYOUTS:
         return _build_layout_template(options)
     if len(app_segments(options)) > 1:
@@ -351,6 +369,94 @@ def _text_region(
     )
 
 
+def icon_mode(options: Mapping[str, Any]) -> str | None:
+    """How the icon follows an entity (state or value); None for a fixed icon.
+
+    An app saved before `icon_mode` existed, with a table of states, follows
+    its state.
+    """
+    mode = options.get(CONF_ICON_MODE)
+    if not mode and options.get(CONF_ICON_STATES):
+        mode = ICON_BY_STATE
+    if mode == ICON_BY_STATE and options.get(CONF_ICON_STATES):
+        return ICON_BY_STATE
+    if mode == ICON_BY_VALUE and options.get(CONF_ICON_STEPS):
+        return ICON_BY_VALUE
+    return None
+
+
+def icon_names(options: Mapping[str, Any]) -> list[str]:
+    """Every icon an app may show: the fixed one, the table's, the steps'."""
+    names = [str(options.get(CONF_ICON) or "").strip()]
+    mode = icon_mode(options)
+    if mode == ICON_BY_STATE:
+        names += [str(name) for name in options[CONF_ICON_STATES].values()]
+    elif mode == ICON_BY_VALUE:
+        names += [str(step[CONF_ICON]) for step in options[CONF_ICON_STEPS]]
+    return list(dict.fromkeys(name for name in names if name))
+
+
+def _icon_source(options: Mapping[str, Any]) -> str:
+    """The Jinja expression of what the icon follows.
+
+    The chosen entity's state; without one, the app's own value: the state or
+    attribute it shows (which may be a number, a boolean or none).
+    """
+    if entity := str(options.get(CONF_ICON_ENTITY) or "").strip():
+        return f"states({jinja_str(_entity_id(entity))})"
+    own = app_segments(options)[0]
+    entity_id = _entity_id(own.get(CONF_ENTITY_ID))
+    attribute = str(own.get(CONF_ATTRIBUTE) or "").strip()
+    if attribute:
+        return f"state_attr({jinja_str(entity_id)}, {jinja_str(attribute)})"
+    return f"states({jinja_str(entity_id)})"
+
+
+def _icon_lines(options: Mapping[str, Any]) -> list[str]:
+    """Lines choosing the icon (`icon_name`) when it follows an entity."""
+    default = jinja_str(str(options.get(CONF_ICON) or "").strip())
+    mode = icon_mode(options)
+    if mode is None:
+        return []
+    # What the icon follows, as text: a 0, or a boolean, is a value like any
+    # other, and none is empty.
+    lines = [
+        f"{{%- set icon_value = {_icon_source(options)} -%}}",
+        "{%- set icon_value = '' if icon_value is none else icon_value | string -%}",
+    ]
+    if mode == ICON_BY_STATE:
+        pairs = ", ".join(
+            f"{jinja_str(str(state))}: {jinja_str(str(name))}"
+            for state, name in options[CONF_ICON_STATES].items()
+        )
+        return [
+            *lines,
+            f"{{%- set icon_name = {{{pairs}}}.get(icon_value, {default}) -%}}",
+        ]
+    chosen = default
+    for step in options[CONF_ICON_STEPS]:
+        # From the lowest step up: the last one the value reaches wins.
+        low = repr(float(step[CONF_ICON_MIN]))
+        chosen = (
+            f"{jinja_str(str(step[CONF_ICON]))} if icon_value | float >= {low}"
+            f" else {chosen}"
+        )
+    # Built from the lowest up, so the highest step is tested first.
+    return [
+        *lines,
+        f"{{%- set icon_name = ({chosen}) if icon_value | is_number"
+        f" else {default} -%}}",
+    ]
+
+
+def _icon_expression(options: Mapping[str, Any]) -> str:
+    """The icon of an app as a Jinja expression; empty when it has none."""
+    if icon_mode(options) is not None:
+        return "icon_name"
+    icon = str(options.get(CONF_ICON) or "").strip()
+    return jinja_str(icon) if icon else ""
+
+
 def _raw_lines(options: Mapping[str, Any]) -> list[str]:
     """Lines reading the value of an entity: its state, or one of its attributes."""
     entity = _entity_id(options.get(CONF_ENTITY_ID))
@@ -366,14 +472,11 @@ def _raw_lines(options: Mapping[str, Any]) -> list[str]:
 def _icon_regions(icon: str) -> tuple[int, int, str]:
     """Where the text starts, how wide it is, and the regions of the icon.
 
-    The icon sits on the left when there is one; the regions are a Jinja list.
+    `icon` is a Jinja expression. The icon sits on the left when there is one;
+    the regions are a Jinja list.
     """
     x = TEXT_X if icon else 0
-    regions = (
-        f'[{{"id": "icon", "box": {ICON_BOX}, "icon": {jinja_str(icon)}}}]'
-        if icon
-        else "[]"
-    )
+    regions = f'[{{"id": "icon", "box": {ICON_BOX}, "icon": {icon}}}]' if icon else "[]"
     return x, DISPLAY_WIDTH - x, regions
 
 
@@ -409,8 +512,7 @@ def _build_layout_template(options: Mapping[str, Any]) -> str:
     entities, one per line, or the current time above the value.
     """
     layout = options[CONF_LAYOUT]
-    icon = str(options.get(CONF_ICON) or "").strip()
-    x, width, regions = _icon_regions(icon)
+    x, width, regions = _icon_regions(_icon_expression(options))
     lines = [HEADER]
     if layout == LAYOUT_TWO_LINES:
         return "\n".join(lines + _two_lines(options, regions, x, width))
@@ -620,12 +722,12 @@ def _payload_lines(
     with_color: bool = True,
 ) -> list[str]:
     """Lines writing the page, with its icon and progress bar; ends the `if`."""
-    icon = str(options.get(CONF_ICON) or "").strip()
+    icon = _icon_expression(options)
     payload = f'{{"text": {text}'
     if with_color:
         payload += f', "{keys["color"]}": color'
     if icon:
-        payload += f', "icon": {jinja_str(icon)}'
+        payload += f', "icon": {icon}'
     payload += "}"
     if not options.get(CONF_PROGRESS):
         return [f"{{{{ {payload} | tojson }}}}", "{%- endif -%}"]
@@ -809,7 +911,7 @@ def build_lines_template(options: Mapping[str, Any]) -> str:
             page += f', "icon": {jinja_str(icon)}'
         return "\n".join([*out, f"{{{{ {page}}} | tojson }}}}", "{%- endif -%}"])
 
-    x, width, regions = _icon_regions(icon)
+    x, width, regions = _icon_regions(jinja_str(icon) if icon else "")
     out.append(f"{{%- set regions = {regions} -%}}")
     if layout == LAYOUT_LINE:
         boxes = [_box(x, 0, width, 16)]

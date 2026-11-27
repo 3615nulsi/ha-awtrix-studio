@@ -54,6 +54,21 @@ CONF_ICON: Final = "icon"
 # Read this attribute of the entity instead of its state (a weather entity's
 # temperature, say).
 CONF_ATTRIBUTE: Final = "attribute"
+# How the icon of a simple app is chosen: always the same, by the state of an
+# entity (icon_states: state -> icon) or by its value (icon_steps: from a value
+# and above -> icon). `icon` is the fixed icon, and the one for any other case.
+CONF_ICON_MODE: Final = "icon_mode"
+ICON_FIXED: Final = "fixed"
+ICON_BY_STATE: Final = "state"
+ICON_BY_VALUE: Final = "value"
+ICON_MODES: Final = (ICON_FIXED, ICON_BY_STATE, ICON_BY_VALUE)
+# The entity the icon follows; the app's own (first) entity without it.
+CONF_ICON_ENTITY: Final = "icon_entity_id"
+CONF_ICON_STATES: Final = "icon_states"
+CONF_ICON_STEPS: Final = "icon_steps"
+CONF_ICON_MIN: Final = "min"
+MAX_ICON_STATES: Final = 40
+MAX_ICON_STEPS: Final = 20
 CONF_COLOR: Final = "color"
 CONF_DECIMALS: Final = "decimals"
 CONF_SHOW_UNIT: Final = "show_unit"
