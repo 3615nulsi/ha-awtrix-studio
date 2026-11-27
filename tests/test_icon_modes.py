@@ -365,3 +365,36 @@ def test_the_engine_gets_the_icons_to_prepare() -> None:
     assert plain.icons_inline is False
     assert config("awtrix_ng", layout="value").icons_inline is True
     assert config("awtrix3", icon_mode="fixed").icons == ()
+
+
+@pytest.mark.parametrize("firmware", ["awtrix3", "awtrix_ng"])
+async def test_a_zero_attribute_is_a_value(hass: HomeAssistant, firmware: str) -> None:
+    """0 (a battery at 0 %, 0 °C) reaches the "from 0" step, not the default."""
+    template = build_app_template(
+        by_value(entity_id=WEATHER, attribute="temperature"), firmware
+    )
+    hass.states.async_set(WEATHER, "rainy", {"temperature": 0})
+    assert render(hass, template)[0]["icon"] == "lametric:10"
+    hass.states.async_set(WEATHER, "rainy", {"temperature": 0.0})
+    assert render(hass, template)[0]["icon"] == "lametric:10"
+    hass.states.async_set(WEATHER, "rainy", {"temperature": -3})
+    assert render(hass, template)[0]["icon"] == "lametric:9"
+
+
+async def test_an_attribute_that_is_not_text_matches_the_table(
+    hass: HomeAssistant,
+) -> None:
+    """A number or a boolean attribute is matched as text, like a state."""
+    options = {
+        "entity_id": "sensor.fan",
+        "attribute": "speed",
+        "icon": "lametric:9",
+        "icon_mode": "state",
+        "icon_states": {"0": "lametric:1", "3": "lametric:3", "True": "lametric:4"},
+    }
+    template = build_app_template(options, "awtrix3")
+    for speed, icon in [(0, "lametric:1"), (3, "lametric:3"), (True, "lametric:4")]:
+        hass.states.async_set("sensor.fan", "on", {"speed": speed})
+        assert render(hass, template)[0]["icon"] == icon, speed
+    hass.states.async_set("sensor.fan", "on", {"speed": 7})
+    assert render(hass, template)[0]["icon"] == "lametric:9"

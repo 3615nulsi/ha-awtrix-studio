@@ -400,7 +400,7 @@ def _icon_source(options: Mapping[str, Any]) -> str:
     """The Jinja expression of what the icon follows.
 
     The chosen entity's state; without one, the app's own value: the state or
-    attribute it shows.
+    attribute it shows (which may be a number, a boolean or none).
     """
     if entity := str(options.get(CONF_ICON_ENTITY) or "").strip():
         return f"states({jinja_str(_entity_id(entity))})"
@@ -408,7 +408,7 @@ def _icon_source(options: Mapping[str, Any]) -> str:
     entity_id = _entity_id(own.get(CONF_ENTITY_ID))
     attribute = str(own.get(CONF_ATTRIBUTE) or "").strip()
     if attribute:
-        return f"(state_attr({jinja_str(entity_id)}, {jinja_str(attribute)}) or '')"
+        return f"state_attr({jinja_str(entity_id)}, {jinja_str(attribute)})"
     return f"states({jinja_str(entity_id)})"
 
 
@@ -416,29 +416,37 @@ def _icon_lines(options: Mapping[str, Any]) -> list[str]:
     """Lines choosing the icon (`icon_name`) when it follows an entity."""
     default = jinja_str(str(options.get(CONF_ICON) or "").strip())
     mode = icon_mode(options)
-    source = _icon_source(options)
+    if mode is None:
+        return []
+    # What the icon follows, as text: a 0, or a boolean, is a value like any
+    # other, and none is empty.
+    lines = [
+        f"{{%- set icon_value = {_icon_source(options)} -%}}",
+        "{%- set icon_value = '' if icon_value is none else icon_value | string -%}",
+    ]
     if mode == ICON_BY_STATE:
         pairs = ", ".join(
             f"{jinja_str(str(state))}: {jinja_str(str(name))}"
             for state, name in options[CONF_ICON_STATES].items()
         )
-        return [f"{{%- set icon_name = {{{pairs}}}.get({source}, {default}) -%}}"]
-    if mode == ICON_BY_VALUE:
-        chosen = default
-        for step in options[CONF_ICON_STEPS]:
-            # From the lowest step up: the last one the value reaches wins.
-            low = repr(float(step[CONF_ICON_MIN]))
-            chosen = (
-                f"{jinja_str(str(step[CONF_ICON]))} if icon_value | float >= {low}"
-                f" else {chosen}"
-            )
-        # Built from the lowest up, so the highest step is tested first.
         return [
-            f"{{%- set icon_value = {source} -%}}",
-            f"{{%- set icon_name = ({chosen}) if icon_value | is_number"
-            f" else {default} -%}}",
+            *lines,
+            f"{{%- set icon_name = {{{pairs}}}.get(icon_value, {default}) -%}}",
         ]
-    return []
+    chosen = default
+    for step in options[CONF_ICON_STEPS]:
+        # From the lowest step up: the last one the value reaches wins.
+        low = repr(float(step[CONF_ICON_MIN]))
+        chosen = (
+            f"{jinja_str(str(step[CONF_ICON]))} if icon_value | float >= {low}"
+            f" else {chosen}"
+        )
+    # Built from the lowest up, so the highest step is tested first.
+    return [
+        *lines,
+        f"{{%- set icon_name = ({chosen}) if icon_value | is_number"
+        f" else {default} -%}}",
+    ]
 
 
 def _icon_expression(options: Mapping[str, Any]) -> str:
